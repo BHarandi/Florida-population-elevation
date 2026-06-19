@@ -353,7 +353,8 @@ def get_pop_overlay(geom_wkt: str, year: int):
     lon_arr = np.linspace(west, east,  hc)
     lat_arr = np.linspace(north, south, hr)
     lons_m, lats_m = np.meshgrid(lon_arr, lat_arr)
-    valid_h = ~np.isnan(pop_h) & (pop_h > 0)
+    # Include all non-NaN pixels within the polygon (NaN = outside boundary or ocean NoData)
+    valid_h = ~np.isnan(pop_h)
     hover = {
         "lons": lons_m[valid_h].tolist(),
         "lats": lats_m[valid_h].tolist(),
