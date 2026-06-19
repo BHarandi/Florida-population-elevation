@@ -267,7 +267,7 @@ def get_flood_overlay(geom_wkt: str, sea_level_m: float):
 
     rgba = np.zeros((dem_ds.shape[0], dem_ds.shape[1], 4), dtype=np.uint8)
     rgba[valid & (dem_ds < 0)]                             = [ 80, 140, 200, 170]  # blue — already below sea level
-    rgba[valid & (dem_ds >= 0) & (dem_ds <= sea_level_m)] = [200,  90,  70, 160]  # terracotta — flooded (Climate Central style)
+    rgba[valid & (dem_ds >= 0) & (dem_ds <= sea_level_m)] = [210, 110,  90, 195]  # salmon-coral — flooded (Climate Central style)
     rgba[poly_outside_ds]                                  = [  0,   0,   0,   0]  # transparent outside (safe land shows basemap)
 
     img = Image.fromarray(rgba, "RGBA")
@@ -1030,13 +1030,13 @@ with tab3:
         slr_use_feet   = not slr_use_meters
 
         if slr_use_feet:
-            slr_ft    = st.slider("Sea level rise (ft)", 0.0, 30.0, 1.0, 0.5, key="slr_slider")
+            slr_ft    = st.slider("Sea level rise (ft)", 0.0, 200.0, 1.0, 0.5, key="slr_slider")
             slr_m     = slr_ft / 3.28084
             slr_label = f"{slr_ft:.1f} ft"
             slr_band_order = BAND_ORDER_FT
             slr_unit_label = "ft above MSL"
         else:
-            slr_m     = st.slider("Sea level rise (m)", 0.0, 10.0, 0.3, 0.1, key="slr_slider")
+            slr_m     = st.slider("Sea level rise (m)", 0.0, 60.0, 0.3, 0.1, key="slr_slider")
             slr_label = f"{slr_m:.1f} m"
             slr_band_order = BAND_ORDER_M
             slr_unit_label = "m above MSL"
