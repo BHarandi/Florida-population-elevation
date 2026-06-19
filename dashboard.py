@@ -33,7 +33,7 @@ DATA_PATH  = os.path.join(_BASE, "data", "population_by_elevation.parquet")
 COUNTY_SHP = os.path.join(_BASE, "data", "shp", "counties", "tl_2010_12_county10.shp")
 STATE_SHP  = os.path.join(_BASE, "data", "shp", "state",    "tl_2020_12_state.shp")
 DEM_PATH      = os.path.join(_BASE, "data", "dem_florida_100m.tif")
-WORLDPOP_DIR  = os.path.join(_BASE, "data", "worldpop")
+WORLDPOP_DIR  = os.path.join(_BASE, "data", "worldpop_wgs84")
 
 BAND_ORDER_M  = ["0-1 m",   "1-2 m",   "2-5 m",   "5-10 m",  "10-25 m", "25-50 m", "50+ m"]
 BAND_ORDER_FT = ["0-3 ft",  "3-7 ft",  "7-16 ft", "16-33 ft","33-82 ft","82-164 ft","164+ ft"]
@@ -283,48 +283,31 @@ def get_pop_overlay(geom_wkt: str, year: int):
     """Clip WorldPop raster to geometry and colorize by population density."""
     pop_path = os.path.join(WORLDPOP_DIR, f"pop_{year}_florida.tif")
     if not os.path.exists(pop_path):
-        return None, None
+        return None, None, None
 
     from shapely import wkt as shapely_wkt
     geom_wgs84 = shapely_wkt.loads(geom_wkt)
-    gdf = gpd.GeoDataFrame(geometry=[geom_wgs84], crs="EPSG:4326").to_crs("EPSG:4269")
-    geom_4269 = gdf.geometry.iloc[0]
 
     try:
         with rasterio.open(pop_path) as src:
             out_image, out_transform = rio_mask(
-                src, [geom_4269.__geo_interface__], crop=True, filled=False,
+                src, [geom_wgs84.__geo_interface__], crop=True, filled=False,
             )
     except Exception:
-        return None, None
+        return None, None, None
 
     from rasterio.features import geometry_mask
     pop_ma = out_image[0]
     h, w = pop_ma.shape
     if h == 0 or w == 0:
-        return None, None
+        return None, None, None
 
     poly_outside = geometry_mask(
-        [geom_4269.__geo_interface__],
+        [geom_wgs84.__geo_interface__],
         out_shape=(h, w), transform=out_transform, invert=False,
     )
     pop = pop_ma.filled(np.nan).astype(np.float32)
 
-    # Mask ocean pixels using DEM (fixes bilinear-resampling bleed at coastlines)
-    if os.path.exists(DEM_PATH):
-        try:
-            with rasterio.open(DEM_PATH) as dem_src:
-                dem_raw, _ = rio_mask(
-                    dem_src, [geom_4269.__geo_interface__], crop=True, filled=True, fill_value=0,
-                )
-            dem_arr = dem_raw[0].astype(np.float32)
-            if dem_arr.shape != (h, w):
-                row_idx = np.round(np.linspace(0, dem_arr.shape[0] - 1, h)).astype(int)
-                col_idx = np.round(np.linspace(0, dem_arr.shape[1] - 1, w)).astype(int)
-                dem_arr = dem_arr[np.ix_(row_idx, col_idx)]
-            pop[dem_arr < 0] = np.nan
-        except Exception:
-            pass
     west  = out_transform.c
     north = out_transform.f
     east  = west  + w * out_transform.a
