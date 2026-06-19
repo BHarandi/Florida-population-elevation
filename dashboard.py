@@ -590,9 +590,10 @@ with tab2:
 
             map_unit      = st.radio("Elevation unit", ["Feet (ft)", "Metric (m)"],
                                      horizontal=True, key="map_unit")
-            map_use_feet  = map_unit == "Feet (ft)"
-            map_band_order = BAND_ORDER_FT if map_use_feet else BAND_ORDER_M
-            map_unit_label = "ft above MSL" if map_use_feet else "m above MSL"
+            map_use_feet   = map_unit == "Feet (ft)"
+            map_band_order  = BAND_ORDER_FT  if map_use_feet else BAND_ORDER_M
+            map_band_colors = BAND_COLORS_FT if map_use_feet else BAND_COLORS_M
+            map_unit_label  = "ft above MSL"  if map_use_feet else "m above MSL"
 
             # Reset band selection if unit changed
             if "map_band" in st.session_state and st.session_state["map_band"] not in (["All elevations"] + map_band_order):
@@ -933,7 +934,6 @@ with tab2:
                 elev_profile["Elev_Band"], categories=map_band_order, ordered=True)
             elev_profile = elev_profile.sort_values("Elev_Band")
 
-            map_band_colors = BAND_COLORS_FT if map_use_feet else BAND_COLORS_M
             fig_profile = go.Figure()
             for _, row in elev_profile.iterrows():
                 color = map_band_colors.get(row["Elev_Band"], "#888888")
