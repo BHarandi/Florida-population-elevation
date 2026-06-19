@@ -267,7 +267,7 @@ def get_flood_overlay(geom_wkt: str, sea_level_m: float):
 
     rgba = np.zeros((dem_ds.shape[0], dem_ds.shape[1], 4), dtype=np.uint8)
     rgba[valid & (dem_ds < 0)]                             = [ 80, 140, 200, 170]  # blue — already below sea level
-    rgba[valid & (dem_ds >= 0) & (dem_ds <= sea_level_m)] = [220,  40,  40, 210]  # red — flooded
+    rgba[valid & (dem_ds >= 0) & (dem_ds <= sea_level_m)] = [220,  40,  40, 150]  # red semi-transparent — flooded
     rgba[poly_outside_ds]                                  = [  0,   0,   0,   0]  # transparent outside (safe land shows basemap)
 
     img = Image.fromarray(rgba, "RGBA")
@@ -882,58 +882,62 @@ with tab2:
                     elif dem_img is None:
                         st.warning("DEM file not found — outline only.")
 
-            # ── Statewide elevation profile chart ────────────────────────────
+            # ── Right column: placeholder for population distribution map ──────
             with state_col2:
-                st.markdown(f"**Florida — elevation profile ({map_year})**")
+                st.markdown("**Florida — population distribution map**")
+                st.info("Population distribution map — coming soon.")
 
-                elev_profile_state = df_all[
-                    (df_all["Scope"] == "Statewide") &
-                    (df_all["Year"]  == map_year)
-                ].copy()
-                elev_profile_state = to_display_bands(elev_profile_state, use_feet)
-                elev_profile_state["Elev_Band"] = pd.Categorical(
-                    elev_profile_state["Elev_Band"], categories=band_order, ordered=True)
-                elev_profile_state = elev_profile_state.sort_values("Elev_Band")
+            # ── Statewide elevation profile chart (below, full width) ─────────
+            st.markdown(f"**Florida — elevation profile ({map_year})**")
 
-                fig_state_profile = go.Figure()
-                for _, row in elev_profile_state.iterrows():
-                    color = band_colors.get(row["Elev_Band"], "#888888")
-                    fig_state_profile.add_trace(go.Bar(
-                        x=[row["Elev_Band"]],
-                        y=[row["Population"]],
-                        marker_color=color,
-                        marker_line_color="white",
-                        marker_line_width=1.5,
-                        name=str(row["Elev_Band"]),
-                        hovertemplate=(
-                            f"<b>{row['Elev_Band']}</b><br>"
-                            f"Population: {row['Population']:,}<br>"
-                            f"% of State: {row['Pct_of_State']:.2f}%<extra></extra>"
-                        ),
-                    ))
+            elev_profile_state = df_all[
+                (df_all["Scope"] == "Statewide") &
+                (df_all["Year"]  == map_year)
+            ].copy()
+            elev_profile_state = to_display_bands(elev_profile_state, use_feet)
+            elev_profile_state["Elev_Band"] = pd.Categorical(
+                elev_profile_state["Elev_Band"], categories=band_order, ordered=True)
+            elev_profile_state = elev_profile_state.sort_values("Elev_Band")
 
-                fig_state_profile.add_trace(go.Scatter(
-                    x=elev_profile_state["Elev_Band"].tolist(),
-                    y=elev_profile_state["Population"].tolist(),
-                    mode="lines",
-                    line=dict(color="rgba(60,60,60,0.6)", width=2, shape="spline"),
-                    fill="tozeroy",
-                    fillcolor="rgba(100,149,237,0.12)",
-                    showlegend=False,
-                    hoverinfo="skip",
+            fig_state_profile = go.Figure()
+            for _, row in elev_profile_state.iterrows():
+                color = band_colors.get(row["Elev_Band"], "#888888")
+                fig_state_profile.add_trace(go.Bar(
+                    x=[row["Elev_Band"]],
+                    y=[row["Population"]],
+                    marker_color=color,
+                    marker_line_color="white",
+                    marker_line_width=1.5,
+                    name=str(row["Elev_Band"]),
+                    hovertemplate=(
+                        f"<b>{row['Elev_Band']}</b><br>"
+                        f"Population: {row['Population']:,}<br>"
+                        f"% of State: {row['Pct_of_State']:.2f}%<extra></extra>"
+                    ),
                 ))
 
-                fig_state_profile.update_layout(
-                    title=f"Population by elevation — Florida ({map_year})",
-                    xaxis_title=f"Elevation ({unit_label})",
-                    yaxis_title="Population",
-                    showlegend=False,
-                    height=460,
-                    margin={"r": 10, "t": 50, "l": 10, "b": 50},
-                    plot_bgcolor="#f8f9fa",
-                    xaxis=dict(categoryorder="array", categoryarray=band_order),
-                )
-                st.plotly_chart(fig_state_profile, use_container_width=True)
+            fig_state_profile.add_trace(go.Scatter(
+                x=elev_profile_state["Elev_Band"].tolist(),
+                y=elev_profile_state["Population"].tolist(),
+                mode="lines",
+                line=dict(color="rgba(60,60,60,0.6)", width=2, shape="spline"),
+                fill="tozeroy",
+                fillcolor="rgba(100,149,237,0.12)",
+                showlegend=False,
+                hoverinfo="skip",
+            ))
+
+            fig_state_profile.update_layout(
+                title=f"Population by elevation — Florida ({map_year})",
+                xaxis_title=f"Elevation ({unit_label})",
+                yaxis_title="Population",
+                showlegend=False,
+                height=400,
+                margin={"r": 10, "t": 50, "l": 10, "b": 50},
+                plot_bgcolor="#f8f9fa",
+                xaxis=dict(categoryorder="array", categoryarray=band_order),
+            )
+            st.plotly_chart(fig_state_profile, use_container_width=True)
 
         # ══════════════════════════════════════════════════════════════════════
         # DOWNLOAD SECTION
