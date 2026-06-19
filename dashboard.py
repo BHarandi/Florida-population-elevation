@@ -356,9 +356,9 @@ def get_pop_overlay(geom_wkt: str, year: int):
     poly_outside_ds = poly_outside[::step_h, ::step_w]
 
     rows, cols = pop_ds.shape
-    # Color pixels with value >= 0 (includes fractional values 0-1 from dasymetric modelling)
-    # Negative values are already NaN (converted above); NaN = water/outside boundary
-    valid = ~np.isnan(pop_ds) & (pop_ds >= 0)
+    # Color pixels with population > 0 (includes fractional values e.g. 0.3, 0.7 people/pixel)
+    # Exactly 0 = no people at all; NaN = water/outside boundary
+    valid = ~np.isnan(pop_ds) & (pop_ds > 0)
 
     # ── 5-class quantile breaks (matching ArcGIS Classify → Quantile, 5 classes) ─
     valid_vals = pop_ds[valid]
@@ -420,23 +420,17 @@ def get_pop_overlay(geom_wkt: str, year: int):
 
 
 def _pop_legend_html(breaks: list) -> str:
-    """5-class quantile legend matching ArcGIS colour ramp."""
-    b = breaks  # 4 break values in people/km²
-    classes = [
-        ("#FFFF00", f"≤ {b[0]:,.0f}"),
-        ("#FFA800", f"{b[0]:,.0f} – {b[1]:,.0f}"),
-        ("#FF6200", f"{b[1]:,.0f} – {b[2]:,.0f}"),
-        ("#FF1E00", f"{b[2]:,.0f} – {b[3]:,.0f}"),
-        ("#FF0000", f"> {b[3]:,.0f}"),
-    ]
-    swatches = " ".join(
-        f'<span style="display:inline-block;width:14px;height:14px;'
-        f'background:{col};border-radius:2px;margin-right:3px;vertical-align:middle;'
-        f'border:1px solid rgba(0,0,0,0.15);"></span>'
-        f'<small style="margin-right:10px;">{lbl}</small>'
-        for col, lbl in classes
+    """Continuous gradient legend for population density."""
+    gradient = "linear-gradient(to right, #FFFF00, #FFA800, #FF6200, #FF1E00, #FF0000)"
+    return (
+        '<div style="font-size:0.8rem;line-height:2;">'
+        'Population density (people/km²):&nbsp;'
+        f'<span style="display:inline-block;width:200px;height:12px;'
+        f'background:{gradient};border-radius:2px;vertical-align:middle;margin:0 6px;'
+        f'border:1px solid rgba(0,0,0,0.1);"></span>'
+        '&nbsp;<small>Low &nbsp;→&nbsp; High</small>'
+        '</div>'
     )
-    return f'<div style="font-size:0.8rem;line-height:2.2;">Population density (people/km²): {swatches}</div>'
 
 
 def _dem_legend_html(unit_k: str) -> str:
