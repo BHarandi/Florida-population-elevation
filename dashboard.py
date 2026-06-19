@@ -267,7 +267,7 @@ def get_flood_overlay(geom_wkt: str, sea_level_m: float):
 
     rgba = np.zeros((dem_ds.shape[0], dem_ds.shape[1], 4), dtype=np.uint8)
     rgba[valid & (dem_ds < 0)]                             = [ 80, 140, 200, 170]  # blue — already below sea level
-    rgba[valid & (dem_ds >= 0) & (dem_ds <= sea_level_m)] = [210, 110,  90, 195]  # salmon-coral — flooded (Climate Central style)
+    rgba[valid & (dem_ds >= 0) & (dem_ds <= sea_level_m)] = [196,  95,  75, 210]  # terracotta — flooded (Climate Central style)
     rgba[poly_outside_ds]                                  = [  0,   0,   0,   0]  # transparent outside (safe land shows basemap)
 
     img = Image.fromarray(rgba, "RGBA")
