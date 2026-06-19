@@ -278,6 +278,36 @@ def get_flood_overlay(geom_wkt: str, sea_level_m: float):
     return data_uri, [west, south, east, north]
 
 
+# ── Continuous colormaps for population overlays ──────────────────────────────
+def _apply_colormap(norm_arr: np.ndarray, colors: np.ndarray) -> np.ndarray:
+    """Interpolate norm_arr values [0,1] through an N×3 color stop array."""
+    n = len(colors) - 1
+    v = np.clip(norm_arr, 0, 1) * n
+    lo = np.floor(v).astype(np.int32).clip(0, n - 1)
+    hi = (lo + 1).clip(0, n)
+    t  = (v - lo)[..., np.newaxis]
+    return (colors[lo] * (1 - t) + colors[hi] * t).astype(np.uint8)
+
+_BLUES = np.array([
+    [237, 248, 255],
+    [198, 219, 239],
+    [107, 174, 214],
+    [ 33, 113, 181],
+    [  8,  48, 107],
+], dtype=np.float32)
+
+_YLORRD = np.array([
+    [255, 255, 178],
+    [254, 204,  92],
+    [253, 141,  60],
+    [240,  59,  32],
+    [189,   0,  38],
+], dtype=np.float32)
+
+_LOG_COUNT_MAX = np.log1p(1000.0)     # ~890 peak in Florida (Miami)
+_LOG_DENS_MAX  = np.log1p(100_000.0)  # matching density ceiling
+
+
 @st.cache_data(show_spinner="Loading population map …")
 def get_pop_overlay(geom_wkt: str, year: int):
     """Clip WorldPop raster to geometry; return count image, density image, bounds, hover."""
@@ -324,43 +354,27 @@ def get_pop_overlay(geom_wkt: str, year: int):
     poly_outside_ds = poly_outside[::step_h, ::step_w]
 
     rows, cols = pop_ds.shape
-    valid = ~np.isnan(pop_ds) & (pop_ds > 0)
+    # Threshold >= 0.5: excludes near-zero water/lake noise that ArcGIS treats as NoData
+    valid = ~np.isnan(pop_ds) & (pop_ds >= 0.5)
 
-    # ── Count image: blue gradient (people per 100 m pixel) ──────────────────
-    rgba_count = np.zeros((rows, cols, 4), dtype=np.uint8)
-    count_bands = [
-        (  0,   1, (200, 220, 255, 110)),
-        (  1,   5, (130, 170, 240, 150)),
-        (  5,  25, ( 65, 120, 220, 185)),
-        ( 25, 100, ( 30,  80, 190, 210)),
-        (100, 500, ( 10,  40, 160, 225)),
-        (500,9999, (  5,  10, 100, 235)),
-    ]
-    for low, high, color in count_bands:
-        mask = valid & (pop_ds >= low) & (pop_ds < high)
-        rgba_count[mask] = color
-    rgba_count[poly_outside_ds] = [0, 0, 0, 0]
+    # ── Count image: continuous blue gradient (people per 100 m pixel) ───────
+    norm_c = np.where(valid, np.log1p(pop_ds.clip(0)) / _LOG_COUNT_MAX, 0.0).clip(0, 1)
+    rgb_c  = _apply_colormap(norm_c, _BLUES)
+    alpha_c = np.where(valid, 210, 0).astype(np.uint8)
+    rgba_count = np.dstack([rgb_c, alpha_c]).astype(np.uint8)
+    rgba_count[poly_outside_ds] = 0
 
     buf_count = io.BytesIO()
     Image.fromarray(rgba_count, "RGBA").save(buf_count, format="PNG")
     data_uri_count = "data:image/png;base64," + base64.b64encode(buf_count.getvalue()).decode()
 
-    # ── Density image: yellow → orange → red (people / km²) ─────────────────
+    # ── Density image: continuous yellow→red (people / km²) ──────────────────
     dens_ds = pop_ds * 100          # 1 pixel = 0.01 km² → ×100 = people/km²
-    rgba_dens = np.zeros((rows, cols, 4), dtype=np.uint8)
-    dens_bands = [
-        (     0,    100, (255, 255, 200, 120)),
-        (   100,    500, (255, 237, 160, 160)),
-        (   500,   2500, (254, 178,  76, 190)),
-        (  2500,  10000, (253, 141,  60, 210)),
-        ( 10000,  50000, (227,  26,  28, 220)),
-        ( 50000, 999999, (165,   0,  38, 230)),
-    ]
-    valid_d = ~np.isnan(dens_ds) & (dens_ds > 0)
-    for low, high, color in dens_bands:
-        mask = valid_d & (dens_ds >= low) & (dens_ds < high)
-        rgba_dens[mask] = color
-    rgba_dens[poly_outside_ds] = [0, 0, 0, 0]
+    norm_d  = np.where(valid, np.log1p(dens_ds.clip(0)) / _LOG_DENS_MAX, 0.0).clip(0, 1)
+    rgb_d   = _apply_colormap(norm_d, _YLORRD)
+    alpha_d = np.where(valid, 200, 0).astype(np.uint8)
+    rgba_dens = np.dstack([rgb_d, alpha_d]).astype(np.uint8)
+    rgba_dens[poly_outside_ds] = 0
 
     buf_dens = io.BytesIO()
     Image.fromarray(rgba_dens, "RGBA").save(buf_dens, format="PNG")
@@ -390,39 +404,25 @@ def get_pop_overlay(geom_wkt: str, year: int):
 
 
 def _pop_count_legend_html() -> str:
-    items = [
-        ("rgb(200,220,255)", "< 1"),
-        ("rgb(130,170,240)", "1–5"),
-        ("rgb(65,120,220)",  "5–25"),
-        ("rgb(30,80,190)",   "25–100"),
-        ("rgb(10,40,160)",   "100–500"),
-        ("rgb(5,10,100)",    "500+"),
-    ]
-    swatches = " ".join(
-        f'<span title="{lbl}" style="display:inline-block;width:14px;height:14px;'
-        f'background:{col};border-radius:2px;margin-right:2px;vertical-align:middle;"></span>'
-        f'<small style="margin-right:6px;">{lbl}</small>'
-        for col, lbl in items
+    gradient = "linear-gradient(to right, rgb(237,248,255), rgb(198,219,239), rgb(107,174,214), rgb(33,113,181), rgb(8,48,107))"
+    return (
+        '<div style="font-size:0.8rem;line-height:2;">'
+        'Population count (people/pixel):&nbsp;'
+        f'<span style="display:inline-block;width:180px;height:12px;'
+        f'background:{gradient};border-radius:2px;vertical-align:middle;margin:0 6px;"></span>'
+        '&nbsp;<small>0.5 → 1,000+ (log scale)</small></div>'
     )
-    return f'<div style="line-height:2;font-size:0.8rem;">Population count (people/pixel): {swatches}</div>'
 
 
 def _pop_legend_html() -> str:
-    items = [
-        ("#FFFFC8", "< 100"),
-        ("#FFEDA0", "100–500"),
-        ("#FEB24C", "500–2,500"),
-        ("#FD8D3C", "2,500–10,000"),
-        ("#E31A1C", "10,000–50,000"),
-        ("#A50026", "50,000+"),
-    ]
-    swatches = " ".join(
-        f'<span title="{lbl}" style="display:inline-block;width:14px;height:14px;'
-        f'background:{col};border-radius:2px;margin-right:2px;vertical-align:middle;"></span>'
-        f'<small style="margin-right:6px;">{lbl}</small>'
-        for col, lbl in items
+    gradient = "linear-gradient(to right, rgb(255,255,178), rgb(254,204,92), rgb(253,141,60), rgb(240,59,32), rgb(189,0,38))"
+    return (
+        '<div style="font-size:0.8rem;line-height:2;">'
+        'Population density (people/km²):&nbsp;'
+        f'<span style="display:inline-block;width:180px;height:12px;'
+        f'background:{gradient};border-radius:2px;vertical-align:middle;margin:0 6px;"></span>'
+        '&nbsp;<small>50 → 100,000+ (log scale)</small></div>'
     )
-    return f'<div style="line-height:2;font-size:0.8rem;">Population density (people/km²): {swatches}</div>'
 
 
 def _dem_legend_html(unit_k: str) -> str:
@@ -1389,7 +1389,6 @@ with tab2:
 # ─────────────────────────────────────────────────────────────────────────────
 with tab3:
     st.subheader("Sea Level Rise — Flood Risk")
-    st.caption("Areas shown in red would be below the tideline at the selected sea level rise scenario.")
 
     slr_col1, slr_col2 = st.columns([3, 1])
 
