@@ -948,6 +948,7 @@ with tab2:
                             hovertemplate="%{text}<extra></extra>",
                             showlegend=False, name="",
                         ))
+                    pw84, ps84, pe84, pn84 = pop_bounds
                     _dens_layers = [{
                         "sourcetype": "image",
                         "source": pop_img_dens,
@@ -1140,6 +1141,7 @@ with tab2:
                             hovertemplate="%{text}<extra></extra>",
                             showlegend=False, name="",
                         ))
+                    pw84s, ps84s, pe84s, pn84s = pop_bounds_s
                     _dens_layers_s = [{
                         "sourcetype": "image",
                         "source": pop_img_dens_s,
