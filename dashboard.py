@@ -313,7 +313,7 @@ def get_pop_overlay(geom_wkt: str, year: int):
     """Clip WorldPop raster to geometry; return count image, density image, bounds, hover."""
     pop_path = os.path.join(WORLDPOP_DIR, f"pop_{year}_florida.tif")
     if not os.path.exists(pop_path):
-        return None, None, None, None
+        return None, None, None, None, None
 
     from shapely import wkt as shapely_wkt
     geom_wgs84 = shapely_wkt.loads(geom_wkt)
@@ -325,13 +325,13 @@ def get_pop_overlay(geom_wkt: str, year: int):
                 src, [geom_wgs84.__geo_interface__], crop=True, filled=False,
             )
     except Exception:
-        return None, None, None, None
+        return None, None, None, None, None
 
     from rasterio.features import geometry_mask
     pop_ma = out_image[0]
     h, w = pop_ma.shape
     if h == 0 or w == 0:
-        return None, None, None, None
+        return None, None, None, None, None
 
     poly_outside = geometry_mask(
         [geom_wgs84.__geo_interface__],
@@ -359,28 +359,37 @@ def get_pop_overlay(geom_wkt: str, year: int):
     # Threshold >= 0.5: excludes near-zero water/lake noise that ArcGIS treats as NoData
     valid = ~np.isnan(pop_ds) & (pop_ds >= 0.5)
 
-    # ── Count image: continuous blue gradient (people per 100 m pixel) ───────
-    norm_c = np.where(valid, np.log1p(pop_ds.clip(0)) / _LOG_COUNT_MAX, 0.0).clip(0, 1)
-    rgb_c  = _apply_colormap(norm_c, _BLUES)
-    alpha_c = np.where(valid, 210, 0).astype(np.uint8)
-    rgba_count = np.dstack([rgb_c, alpha_c]).astype(np.uint8)
-    rgba_count[poly_outside_ds] = 0
+    # ── 5-class quantile breaks (matching ArcGIS Classify → Quantile, 5 classes) ─
+    valid_vals = pop_ds[valid]
+    if valid_vals.size >= 5:
+        q20, q40, q60, q80 = np.percentile(valid_vals, [20, 40, 60, 80])
+    else:
+        q20, q40, q60, q80 = 1.0, 5.0, 10.0, 20.0
+    thresholds = [0.5, q20, q40, q60, q80, np.inf]
 
-    buf_count = io.BytesIO()
-    Image.fromarray(rgba_count, "RGBA").save(buf_count, format="PNG")
-    data_uri_count = "data:image/png;base64," + base64.b64encode(buf_count.getvalue()).decode()
+    # Yellow → orange → dark red (5 classes, same colour ramp as ArcGIS)
+    _Q5_COLORS = [
+        (255, 255,   0, 160),  # Q1 — bright yellow
+        (255, 165,   0, 185),  # Q2 — amber/orange
+        (255,  80,   0, 205),  # Q3 — red-orange
+        (210,  20,  20, 215),  # Q4 — red
+        (139,   0,   0, 225),  # Q5 — dark red
+    ]
 
-    # ── Density image: continuous yellow→red (people / km²) ──────────────────
-    dens_ds = pop_ds * 100          # 1 pixel = 0.01 km² → ×100 = people/km²
-    norm_d  = np.where(valid, np.log1p(dens_ds.clip(0)) / _LOG_DENS_MAX, 0.0).clip(0, 1)
-    rgb_d   = _apply_colormap(norm_d, _YLORRD)
-    alpha_d = np.where(valid, 200, 0).astype(np.uint8)
-    rgba_dens = np.dstack([rgb_d, alpha_d]).astype(np.uint8)
+    # ── Density image: 5-class quantile ──────────────────────────────────────
+    rgba_dens = np.zeros((rows, cols, 4), dtype=np.uint8)
+    for i, color in enumerate(_Q5_COLORS):
+        mask = valid & (pop_ds >= thresholds[i]) & (pop_ds < thresholds[i + 1])
+        rgba_dens[mask] = color
     rgba_dens[poly_outside_ds] = 0
 
     buf_dens = io.BytesIO()
     Image.fromarray(rgba_dens, "RGBA").save(buf_dens, format="PNG")
     data_uri_dens = "data:image/png;base64," + base64.b64encode(buf_dens.getvalue()).decode()
+
+    # breaks in people/km² for the legend (count × 100)
+    dens_breaks = [round(q20 * 100, 1), round(q40 * 100, 1),
+                   round(q60 * 100, 1), round(q80 * 100, 1)]
 
     # ── Hover grid — ~60×60 sample points ────────────────────────────────────
     HOVER_N = 60
@@ -402,29 +411,27 @@ def get_pop_overlay(geom_wkt: str, year: int):
         ],
     }
 
-    return data_uri_count, data_uri_dens, [west, south, east, north], hover
+    return None, data_uri_dens, [west, south, east, north], hover, dens_breaks
 
 
-def _pop_count_legend_html() -> str:
-    gradient = "linear-gradient(to right, rgb(237,248,255), rgb(198,219,239), rgb(107,174,214), rgb(33,113,181), rgb(8,48,107))"
-    return (
-        '<div style="font-size:0.8rem;line-height:2;">'
-        'Population count (people/pixel):&nbsp;'
-        f'<span style="display:inline-block;width:180px;height:12px;'
-        f'background:{gradient};border-radius:2px;vertical-align:middle;margin:0 6px;"></span>'
-        '&nbsp;<small>0.5 → 1,000+ (log scale)</small></div>'
+def _pop_legend_html(breaks: list) -> str:
+    """5-class quantile legend matching ArcGIS colour ramp."""
+    b = breaks  # 4 break values in people/km²
+    classes = [
+        ("#FFFF00", f"< {b[0]:,.0f}"),
+        ("#FFA500", f"{b[0]:,.0f} – {b[1]:,.0f}"),
+        ("#FF5000", f"{b[1]:,.0f} – {b[2]:,.0f}"),
+        ("#D21414", f"{b[2]:,.0f} – {b[3]:,.0f}"),
+        ("#8B0000", f"> {b[3]:,.0f}"),
+    ]
+    swatches = " ".join(
+        f'<span style="display:inline-block;width:14px;height:14px;'
+        f'background:{col};border-radius:2px;margin-right:3px;vertical-align:middle;'
+        f'border:1px solid rgba(0,0,0,0.15);"></span>'
+        f'<small style="margin-right:10px;">{lbl}</small>'
+        for col, lbl in classes
     )
-
-
-def _pop_legend_html() -> str:
-    gradient = "linear-gradient(to right, rgb(255,255,178), rgb(254,204,92), rgb(253,141,60), rgb(240,59,32), rgb(189,0,38))"
-    return (
-        '<div style="font-size:0.8rem;line-height:2;">'
-        'Population density (people/km²):&nbsp;'
-        f'<span style="display:inline-block;width:180px;height:12px;'
-        f'background:{gradient};border-radius:2px;vertical-align:middle;margin:0 6px;"></span>'
-        '&nbsp;<small>50 → 100,000+ (log scale)</small></div>'
-    )
+    return f'<div style="font-size:0.8rem;line-height:2.2;">Population density (people/km²): {swatches}</div>'
 
 
 def _dem_legend_html(unit_k: str) -> str:
@@ -910,7 +917,7 @@ with tab2:
                     st.warning("DEM file not found — outline only.")
 
             # ── Right column: population density map (yellow→red) ────────────
-            pop_img_count, pop_img_dens, pop_bounds, pop_hover = get_pop_overlay(geom.wkt, map_year)
+            pop_img_count, pop_img_dens, pop_bounds, pop_hover, pop_dens_breaks = get_pop_overlay(geom.wkt, map_year)
             _pop_bmap_map = {
                 "Streets (OpenStreetMap)": "open-street-map",
                 "Light (Carto)":           "carto-positron",
@@ -963,8 +970,8 @@ with tab2:
                         uirevision=f"{map_county}_pop_dens",
                     )
                     st.plotly_chart(fig_dens, use_container_width=True, config={"scrollZoom": True})
-                    if show_dens:
-                        st.markdown(_pop_legend_html(), unsafe_allow_html=True)
+                    if show_dens and pop_dens_breaks:
+                        st.markdown(_pop_legend_html(pop_dens_breaks), unsafe_allow_html=True)
 
             # ── Elevation profile chart (below, full width) ───────────────────
             st.markdown(f"**{map_county} — elevation profile ({map_year})**")
@@ -1105,7 +1112,7 @@ with tab2:
                 "Light (Carto)":           "carto-positron",
                 "Dark (Carto)":            "carto-darkmatter",
             }
-            pop_img_count_s, pop_img_dens_s, pop_bounds_s, pop_hover_s = get_pop_overlay(state_wkt, map_year)
+            pop_img_count_s, pop_img_dens_s, pop_bounds_s, pop_hover_s, pop_dens_breaks_s = get_pop_overlay(state_wkt, map_year)
 
             with state_col3:
                 st.markdown(f"**Florida — population density ({map_year})**")
@@ -1155,8 +1162,8 @@ with tab2:
                         uirevision="state_pop_dens",
                     )
                     st.plotly_chart(fig_dens_s, use_container_width=True, config={"scrollZoom": True})
-                    if show_dens_s:
-                        st.markdown(_pop_legend_html(), unsafe_allow_html=True)
+                    if show_dens_s and pop_dens_breaks_s:
+                        st.markdown(_pop_legend_html(pop_dens_breaks_s), unsafe_allow_html=True)
 
             # ── Statewide elevation profile chart (below, full width) ─────────
             st.markdown(f"**Florida — elevation profile ({map_year})**")
