@@ -356,16 +356,16 @@ def get_pop_overlay(geom_wkt: str, year: int):
     poly_outside_ds = poly_outside[::step_h, ::step_w]
 
     rows, cols = pop_ds.shape
-    # Include ALL non-NaN pixels (0-value land pixels are valid — parks, industrial, etc.)
+    # Only color pixels with actual population (> 0); 0-value pixels = parks/industrial = no people
     # Water/lakes are NaN (masked by pop < 0 and NoData conversion above)
-    valid = ~np.isnan(pop_ds)
+    valid = ~np.isnan(pop_ds) & (pop_ds > 0)
 
     # ── 5-class quantile breaks (matching ArcGIS Classify → Quantile, 5 classes) ─
     valid_vals = pop_ds[valid]
     if valid_vals.size >= 5:
         q20, q40, q60, q80 = np.percentile(valid_vals, [20, 40, 60, 80])
     else:
-        q20, q40, q60, q80 = 0.0, 3.5, 10.5, 17.5
+        q20, q40, q60, q80 = 0.5, 3.5, 10.5, 17.5
 
     # Yellow → orange → bright red (matching ArcGIS "Yellow to Red" ramp, 5 classes)
     _Q5_COLORS = [
