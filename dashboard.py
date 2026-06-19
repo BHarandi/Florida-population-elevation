@@ -218,6 +218,65 @@ def get_dem_overlay(geom_wkt: str, unit_k: str):
     return data_uri, [west, south, east, north], hover
 
 
+@st.cache_data(show_spinner="Computing flood overlay …")
+def get_flood_overlay(geom_wkt: str, sea_level_m: float):
+    """
+    Color pixels with elevation <= sea_level_m as flooded (red).
+    Already below 0 m → deep blue. Safe land → transparent.
+    Returns (data_uri_png, [west, south, east, north]) or (None, None).
+    """
+    if not os.path.exists(DEM_PATH):
+        return None, None
+
+    from shapely import wkt as shapely_wkt
+    geom_wgs84 = shapely_wkt.loads(geom_wkt)
+    gdf = gpd.GeoDataFrame(geometry=[geom_wgs84], crs="EPSG:4326").to_crs("EPSG:4269")
+    geom_4269 = gdf.geometry.iloc[0]
+
+    try:
+        with rasterio.open(DEM_PATH) as src:
+            out_image, out_transform = rio_mask(
+                src, [geom_4269.__geo_interface__], crop=True, filled=False,
+            )
+    except Exception:
+        return None, None
+
+    from rasterio.features import geometry_mask
+    dem_ma = out_image[0]
+    h, w = dem_ma.shape
+    if h == 0 or w == 0:
+        return None, None
+
+    poly_outside = geometry_mask(
+        [geom_4269.__geo_interface__],
+        out_shape=(h, w), transform=out_transform, invert=False,
+    )
+    dem = dem_ma.filled(np.nan).astype(np.float32)
+
+    west  = out_transform.c
+    north = out_transform.f
+    east  = west  + w * out_transform.a
+    south = north + h * out_transform.e
+
+    MAX_PX = 600
+    step_h = max(1, h // MAX_PX)
+    step_w = max(1, w // MAX_PX)
+    dem_ds          = dem[::step_h, ::step_w]
+    poly_outside_ds = poly_outside[::step_h, ::step_w]
+    valid           = ~np.isnan(dem_ds) & ~poly_outside_ds
+
+    rgba = np.zeros((dem_ds.shape[0], dem_ds.shape[1], 4), dtype=np.uint8)
+    rgba[valid & (dem_ds < 0)]                          = [33,  102, 172, 210]  # deep blue — already below sea level
+    rgba[valid & (dem_ds >= 0) & (dem_ds <= sea_level_m)] = [214,  69,  65, 210]  # red — flooded
+    rgba[poly_outside_ds]                               = [0,   0,   0,   0]   # transparent outside
+
+    img = Image.fromarray(rgba, "RGBA")
+    buf = io.BytesIO()
+    img.save(buf, format="PNG")
+    data_uri = "data:image/png;base64," + base64.b64encode(buf.getvalue()).decode()
+    return data_uri, [west, south, east, north]
+
+
 def _dem_legend_html(unit_k: str) -> str:
     """Return an HTML colour-strip legend for the DEM overlay (5 classes + water)."""
     if unit_k == "Feet":
@@ -349,7 +408,7 @@ df_area = get_area_df(selected_area, unit_key,
 
 
 # ── Tabs ──────────────────────────────────────────────────────────────────────
-tab1, tab2 = st.tabs(["Distribution", "Map"])
+tab1, tab2, tab3 = st.tabs(["Distribution", "Map", "Sea Level Rise"])
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -947,6 +1006,147 @@ with tab2:
                 mime="text/csv",
                 use_container_width=True,
             )
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# TAB 3 — Sea Level Rise
+# ─────────────────────────────────────────────────────────────────────────────
+with tab3:
+    st.subheader("Sea Level Rise — Flood Risk")
+    st.caption("Areas shown in red would be below the tideline at the selected sea level rise scenario.")
+
+    slr_col1, slr_col2 = st.columns([3, 1])
+
+    with slr_col2:
+        slr_area = st.selectbox(
+            "County / Statewide", county_options, key="slr_area",
+        )
+        slr_year = st.selectbox(
+            "Year", all_years, index=len(all_years) - 1, key="slr_year",
+        )
+        if use_feet:
+            slr_ft   = st.slider("Sea level rise (ft)", 0.0, 30.0, 1.0, 0.5, key="slr_slider")
+            slr_m    = slr_ft / 3.28084
+            slr_label = f"{slr_ft:.1f} ft"
+        else:
+            slr_m    = st.slider("Sea level rise (m)", 0.0, 10.0, 0.3, 0.1, key="slr_slider")
+            slr_label = f"{slr_m:.1f} m"
+
+        _slr_basemap_map = {
+            "Streets (OpenStreetMap)": "open-street-map",
+            "Light (Carto)":           "carto-positron",
+            "Dark (Carto)":            "carto-darkmatter",
+        }
+        slr_basemap_style = st.selectbox(
+            "Basemap", options=list(_slr_basemap_map.keys()), index=1, key="slr_basemap",
+        )
+
+    # ── Get geometry ─────────────────────────────────────────────────────────
+    if slr_area == "Florida (Statewide)":
+        slr_geom_wkt = load_state_geometry_wkt()
+        slr_center   = {"lat": 27.8, "lon": -81.5}
+        slr_zoom     = 5.5
+    else:
+        slr_geoid = df_all[
+            (df_all["Scope"] == "County") &
+            (df_all["County_Name"] == slr_area)
+        ]["County_GEOID"].iloc[0] if not df_all[
+            (df_all["Scope"] == "County") &
+            (df_all["County_Name"] == slr_area)
+        ].empty else None
+
+        slr_feat = [f for f in fl_geojson["features"]
+                    if f["properties"]["GEOID10"] == slr_geoid] if slr_geoid else []
+        if slr_feat:
+            slr_geom     = shape(slr_feat[0]["geometry"])
+            slr_geom_wkt = slr_geom.wkt
+            slr_center   = {"lat": slr_geom.centroid.y, "lon": slr_geom.centroid.x}
+            minx, miny, maxx, maxy = slr_geom.bounds
+            max_span = max(maxx - minx, maxy - miny)
+            slr_zoom = max(6, min(10, round(8.0 - max_span * 6)))
+        else:
+            slr_geom_wkt = None
+
+    # ── Flood map ─────────────────────────────────────────────────────────────
+    with slr_col1:
+        if slr_geom_wkt is None:
+            st.warning("Could not load geometry for selected area.")
+        else:
+            flood_img, flood_bounds = get_flood_overlay(slr_geom_wkt, slr_m)
+
+            fig_slr = go.Figure()
+            mapbox_cfg_slr = dict(
+                style=_slr_basemap_map[slr_basemap_style],
+                zoom=slr_zoom,
+                center=slr_center,
+            )
+            if flood_img is not None:
+                w84, s84, e84, n84 = flood_bounds
+                mapbox_cfg_slr["layers"] = [{
+                    "sourcetype": "image",
+                    "source": flood_img,
+                    "coordinates": [
+                        [w84, n84], [e84, n84], [e84, s84], [w84, s84],
+                    ],
+                    "opacity": 0.85,
+                    "below": "traces",
+                }]
+            elif flood_img is None and os.path.exists(DEM_PATH):
+                st.info("Zoom in or select a smaller area if the map is slow to load.")
+
+            fig_slr.update_layout(
+                mapbox=mapbox_cfg_slr,
+                height=520,
+                margin={"r": 0, "t": 10, "l": 0, "b": 0},
+                uirevision=f"{slr_area}_{slr_m}",
+            )
+            st.plotly_chart(fig_slr, use_container_width=True)
+
+            # Legend
+            st.markdown(
+                '<span style="display:inline-block;width:14px;height:14px;background:#d64541;'
+                'border-radius:2px;margin-right:4px;vertical-align:middle;"></span>'
+                f'<small>Flooded at +{slr_label} sea level rise</small>&nbsp;&nbsp;&nbsp;'
+                '<span style="display:inline-block;width:14px;height:14px;background:#2166ac;'
+                'border-radius:2px;margin-right:4px;vertical-align:middle;"></span>'
+                '<small>Already below sea level</small>',
+                unsafe_allow_html=True,
+            )
+
+    # ── Population at risk from parquet ───────────────────────────────────────
+    st.markdown("---")
+    st.markdown(f"**Population at risk — {slr_area} ({slr_year}) at +{slr_label} sea level rise**")
+
+    scope_slr = "Statewide" if slr_area == "Florida (Statewide)" else "County"
+    at_risk_df = df_all[
+        (df_all["Scope"] == scope_slr) &
+        (df_all["Year"]  == slr_year)
+    ].copy()
+    if scope_slr == "County":
+        at_risk_df = at_risk_df[at_risk_df["County_Name"] == slr_area]
+
+    at_risk_df["at_risk"] = at_risk_df["Elev_Max_m"] <= slr_m
+    at_risk_pop   = at_risk_df[at_risk_df["at_risk"]]["Population"].sum()
+    total_pop_slr = at_risk_df["Population"].sum()
+    pct_at_risk   = (at_risk_pop / total_pop_slr * 100) if total_pop_slr > 0 else 0
+
+    r1, r2, r3 = st.columns(3)
+    r1.metric("Population at risk", f"{at_risk_pop:,.0f}")
+    r2.metric("Total population",   f"{total_pop_slr:,.0f}")
+    r3.metric("% at risk",          f"{pct_at_risk:.1f}%")
+
+    at_risk_display = to_display_bands(at_risk_df.copy(), use_feet)
+    at_risk_display["Elev_Band"] = pd.Categorical(
+        at_risk_display["Elev_Band"], categories=band_order, ordered=True)
+    at_risk_display = at_risk_display.sort_values("Elev_Band")
+    at_risk_display["Status"] = at_risk_display["at_risk"].map(
+        {True: "At risk", False: "Safe"})
+    st.dataframe(
+        at_risk_display[["Elev_Band", "Population", "Pct_of_State", "Status"]]
+        .rename(columns={"Elev_Band": f"Elevation ({unit_label})", "Pct_of_State": "% State"})
+        .reset_index(drop=True),
+        use_container_width=True, hide_index=True,
+    )
 
 
 # ── Footer ────────────────────────────────────────────────────────────────────
