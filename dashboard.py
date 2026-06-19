@@ -266,10 +266,9 @@ def get_flood_overlay(geom_wkt: str, sea_level_m: float):
     valid           = ~np.isnan(dem_ds) & ~poly_outside_ds
 
     rgba = np.zeros((dem_ds.shape[0], dem_ds.shape[1], 4), dtype=np.uint8)
-    rgba[valid & (dem_ds < 0)]                             = [ 33, 102, 172, 180]  # deep blue — already below sea level
-    rgba[valid & (dem_ds >= 0) & (dem_ds <= sea_level_m)] = [214,  69,  65, 150]  # red — flooded (semi-transparent)
-    rgba[valid & (dem_ds > sea_level_m)]                   = [120, 180, 100,  40]  # faint green — safe land
-    rgba[poly_outside_ds]                                  = [  0,   0,   0,   0]  # transparent outside
+    rgba[valid & (dem_ds < 0)]                             = [ 80, 140, 200, 170]  # blue — already below sea level
+    rgba[valid & (dem_ds >= 0) & (dem_ds <= sea_level_m)] = [200,  90,  70, 160]  # terracotta — flooded (Climate Central style)
+    rgba[poly_outside_ds]                                  = [  0,   0,   0,   0]  # transparent outside (safe land shows basemap)
 
     img = Image.fromarray(rgba, "RGBA")
     buf = io.BytesIO()
@@ -1026,24 +1025,27 @@ with tab3:
             "Year", all_years, index=len(all_years) - 1, key="slr_year",
         )
 
-        # Independent unit toggle — does not follow the sidebar
-        u_left, u_mid, u_right = st.columns([2, 1, 2])
-        u_left.markdown("<div style='text-align:right;padding-top:6px;'>Feet</div>", unsafe_allow_html=True)
-        slr_use_meters = u_mid.toggle("", value=False, key="slr_unit_toggle", label_visibility="collapsed")
-        u_right.markdown("<div style='padding-top:6px;'>Meters</div>", unsafe_allow_html=True)
-        slr_use_feet = not slr_use_meters
+        # Read unit toggle first (default Feet) so slider range is correct
+        slr_use_meters = st.session_state.get("slr_unit_toggle", False)
+        slr_use_feet   = not slr_use_meters
 
         if slr_use_feet:
             slr_ft    = st.slider("Sea level rise (ft)", 0.0, 30.0, 1.0, 0.5, key="slr_slider")
             slr_m     = slr_ft / 3.28084
             slr_label = f"{slr_ft:.1f} ft"
-            slr_band_order  = BAND_ORDER_FT
-            slr_unit_label  = "ft above MSL"
+            slr_band_order = BAND_ORDER_FT
+            slr_unit_label = "ft above MSL"
         else:
             slr_m     = st.slider("Sea level rise (m)", 0.0, 10.0, 0.3, 0.1, key="slr_slider")
             slr_label = f"{slr_m:.1f} m"
-            slr_band_order  = BAND_ORDER_M
-            slr_unit_label  = "m above MSL"
+            slr_band_order = BAND_ORDER_M
+            slr_unit_label = "m above MSL"
+
+        # Unit toggle — below the slider
+        u_left, u_mid, u_right = st.columns([2, 1, 2])
+        u_left.markdown("<div style='text-align:right;padding-top:6px;font-size:0.9rem;'>Feet</div>", unsafe_allow_html=True)
+        u_mid.toggle("", value=slr_use_meters, key="slr_unit_toggle", label_visibility="collapsed")
+        u_right.markdown("<div style='padding-top:6px;font-size:0.9rem;'>Meters</div>", unsafe_allow_html=True)
 
         _slr_basemap_map = {
             "Streets (OpenStreetMap)": "open-street-map",
