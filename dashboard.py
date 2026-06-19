@@ -748,61 +748,64 @@ with tab2:
                 elif dem_img is None:
                     st.warning("DEM file not found — outline only.")
 
-            # ── Elevation profile chart ───────────────────────────────────────
+            # ── Right column: placeholder for population distribution map ──────
             with zoom_col2:
-                st.markdown(f"**{map_county} — elevation profile ({map_year})**")
+                st.markdown(f"**{map_county} — population distribution map**")
+                st.info("Population distribution map — coming soon.")
 
-                elev_profile = df_all[
-                    (df_all["Scope"]       == "County") &
-                    (df_all["Year"]        == map_year) &
-                    (df_all["County_Name"] == map_county)
-                ].copy()
-                elev_profile = to_display_bands(elev_profile, use_feet)
-                elev_profile["Elev_Band"] = pd.Categorical(
-                    elev_profile["Elev_Band"], categories=band_order, ordered=True)
-                elev_profile = elev_profile.sort_values("Elev_Band")
+            # ── Elevation profile chart (below, full width) ───────────────────
+            st.markdown(f"**{map_county} — elevation profile ({map_year})**")
 
-                # Build a silhouette-style area chart using Elev_Min as x
-                fig_profile = go.Figure()
-                for _, row in elev_profile.iterrows():
-                    color = band_colors.get(row["Elev_Band"], "#888888")
-                    fig_profile.add_trace(go.Bar(
-                        x=[row["Elev_Band"]],
-                        y=[row["Population"]],
-                        marker_color=color,
-                        marker_line_color="white",
-                        marker_line_width=1.5,
-                        name=str(row["Elev_Band"]),
-                        hovertemplate=(
-                            f"<b>{row['Elev_Band']}</b><br>"
-                            f"Population: {row['Population']:,}<br>"
-                            f"% of State: {row['Pct_of_State']:.2f}%<extra></extra>"
-                        ),
-                    ))
+            elev_profile = df_all[
+                (df_all["Scope"]       == "County") &
+                (df_all["Year"]        == map_year) &
+                (df_all["County_Name"] == map_county)
+            ].copy()
+            elev_profile = to_display_bands(elev_profile, use_feet)
+            elev_profile["Elev_Band"] = pd.Categorical(
+                elev_profile["Elev_Band"], categories=band_order, ordered=True)
+            elev_profile = elev_profile.sort_values("Elev_Band")
 
-                fig_profile.add_trace(go.Scatter(
-                    x=elev_profile["Elev_Band"].tolist(),
-                    y=elev_profile["Population"].tolist(),
-                    mode="lines",
-                    line=dict(color="rgba(60,60,60,0.6)", width=2, shape="spline"),
-                    fill="tozeroy",
-                    fillcolor="rgba(100,149,237,0.12)",
-                    showlegend=False,
-                    hoverinfo="skip",
+            fig_profile = go.Figure()
+            for _, row in elev_profile.iterrows():
+                color = band_colors.get(row["Elev_Band"], "#888888")
+                fig_profile.add_trace(go.Bar(
+                    x=[row["Elev_Band"]],
+                    y=[row["Population"]],
+                    marker_color=color,
+                    marker_line_color="white",
+                    marker_line_width=1.5,
+                    name=str(row["Elev_Band"]),
+                    hovertemplate=(
+                        f"<b>{row['Elev_Band']}</b><br>"
+                        f"Population: {row['Population']:,}<br>"
+                        f"% of State: {row['Pct_of_State']:.2f}%<extra></extra>"
+                    ),
                 ))
 
-                fig_profile.update_layout(
-                    title=f"Population by elevation — {map_county}",
-                    xaxis_title=f"Elevation ({unit_label})",
-                    yaxis_title="Population",
-                    showlegend=False,
-                    height=400,
-                    margin={"r": 10, "t": 50, "l": 10, "b": 50},
-                    plot_bgcolor="#f8f9fa",
-                    xaxis=dict(categoryorder="array",
-                                categoryarray=band_order),
-                )
-                st.plotly_chart(fig_profile, use_container_width=True)
+            fig_profile.add_trace(go.Scatter(
+                x=elev_profile["Elev_Band"].tolist(),
+                y=elev_profile["Population"].tolist(),
+                mode="lines",
+                line=dict(color="rgba(60,60,60,0.6)", width=2, shape="spline"),
+                fill="tozeroy",
+                fillcolor="rgba(100,149,237,0.12)",
+                showlegend=False,
+                hoverinfo="skip",
+            ))
+
+            fig_profile.update_layout(
+                title=f"Population by elevation — {map_county}",
+                xaxis_title=f"Elevation ({unit_label})",
+                yaxis_title="Population",
+                showlegend=False,
+                height=400,
+                width=750,
+                margin={"r": 10, "t": 50, "l": 10, "b": 50},
+                plot_bgcolor="#f8f9fa",
+                xaxis=dict(categoryorder="array", categoryarray=band_order),
+            )
+            st.plotly_chart(fig_profile, use_container_width=False)
 
         # ══════════════════════════════════════════════════════════════════════
         # STATEWIDE DEM — shown when no county is selected
@@ -933,11 +936,12 @@ with tab2:
                 yaxis_title="Population",
                 showlegend=False,
                 height=400,
+                width=750,
                 margin={"r": 10, "t": 50, "l": 10, "b": 50},
                 plot_bgcolor="#f8f9fa",
                 xaxis=dict(categoryorder="array", categoryarray=band_order),
             )
-            st.plotly_chart(fig_state_profile, use_container_width=True)
+            st.plotly_chart(fig_state_profile, use_container_width=False)
 
         # ══════════════════════════════════════════════════════════════════════
         # DOWNLOAD SECTION
