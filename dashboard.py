@@ -280,10 +280,10 @@ def get_flood_overlay(geom_wkt: str, sea_level_m: float):
 
 @st.cache_data(show_spinner="Loading population map …")
 def get_pop_overlay(geom_wkt: str, year: int):
-    """Clip WorldPop raster to geometry and colorize by population density."""
+    """Clip WorldPop raster to geometry; return count image, density image, bounds, hover."""
     pop_path = os.path.join(WORLDPOP_DIR, f"pop_{year}_florida.tif")
     if not os.path.exists(pop_path):
-        return None, None, None
+        return None, None, None, None
 
     from shapely import wkt as shapely_wkt
     geom_wgs84 = shapely_wkt.loads(geom_wkt)
@@ -295,13 +295,13 @@ def get_pop_overlay(geom_wkt: str, year: int):
                 src, [geom_wgs84.__geo_interface__], crop=True, filled=False,
             )
     except Exception:
-        return None, None, None
+        return None, None, None, None
 
     from rasterio.features import geometry_mask
     pop_ma = out_image[0]
     h, w = pop_ma.shape
     if h == 0 or w == 0:
-        return None, None, None
+        return None, None, None, None
 
     poly_outside = geometry_mask(
         [geom_wgs84.__geo_interface__],
@@ -324,29 +324,49 @@ def get_pop_overlay(geom_wkt: str, year: int):
     poly_outside_ds = poly_outside[::step_h, ::step_w]
 
     rows, cols = pop_ds.shape
-    rgba  = np.zeros((rows, cols, 4), dtype=np.uint8)
     valid = ~np.isnan(pop_ds) & (pop_ds > 0)
 
-    # Sequential yellow → orange → red (people per 100 m pixel)
-    pop_bands = [
-        (  0,   1, (255, 255, 200, 120)),
-        (  1,   5, (255, 237, 160, 160)),
-        (  5,  25, (254, 178,  76, 190)),
-        ( 25, 100, (253, 141,  60, 210)),
-        (100, 500, (227,  26,  28, 220)),
-        (500,9999, (165,   0,  38, 230)),
+    # ── Count image: blue gradient (people per 100 m pixel) ──────────────────
+    rgba_count = np.zeros((rows, cols, 4), dtype=np.uint8)
+    count_bands = [
+        (  0,   1, (200, 220, 255, 110)),
+        (  1,   5, (130, 170, 240, 150)),
+        (  5,  25, ( 65, 120, 220, 185)),
+        ( 25, 100, ( 30,  80, 190, 210)),
+        (100, 500, ( 10,  40, 160, 225)),
+        (500,9999, (  5,  10, 100, 235)),
     ]
-    for low, high, color in pop_bands:
+    for low, high, color in count_bands:
         mask = valid & (pop_ds >= low) & (pop_ds < high)
-        rgba[mask] = color
-    rgba[poly_outside_ds] = [0, 0, 0, 0]
+        rgba_count[mask] = color
+    rgba_count[poly_outside_ds] = [0, 0, 0, 0]
 
-    img = Image.fromarray(rgba, "RGBA")
-    buf = io.BytesIO()
-    img.save(buf, format="PNG")
-    data_uri = "data:image/png;base64," + base64.b64encode(buf.getvalue()).decode()
+    buf_count = io.BytesIO()
+    Image.fromarray(rgba_count, "RGBA").save(buf_count, format="PNG")
+    data_uri_count = "data:image/png;base64," + base64.b64encode(buf_count.getvalue()).decode()
 
-    # Hover grid — ~60×60 sample points
+    # ── Density image: yellow → orange → red (people / km²) ─────────────────
+    dens_ds = pop_ds * 100          # 1 pixel = 0.01 km² → ×100 = people/km²
+    rgba_dens = np.zeros((rows, cols, 4), dtype=np.uint8)
+    dens_bands = [
+        (     0,    100, (255, 255, 200, 120)),
+        (   100,    500, (255, 237, 160, 160)),
+        (   500,   2500, (254, 178,  76, 190)),
+        (  2500,  10000, (253, 141,  60, 210)),
+        ( 10000,  50000, (227,  26,  28, 220)),
+        ( 50000, 999999, (165,   0,  38, 230)),
+    ]
+    valid_d = ~np.isnan(dens_ds) & (dens_ds > 0)
+    for low, high, color in dens_bands:
+        mask = valid_d & (dens_ds >= low) & (dens_ds < high)
+        rgba_dens[mask] = color
+    rgba_dens[poly_outside_ds] = [0, 0, 0, 0]
+
+    buf_dens = io.BytesIO()
+    Image.fromarray(rgba_dens, "RGBA").save(buf_dens, format="PNG")
+    data_uri_dens = "data:image/png;base64," + base64.b64encode(buf_dens.getvalue()).decode()
+
+    # ── Hover grid — ~60×60 sample points ────────────────────────────────────
     HOVER_N = 60
     sh = max(1, rows // HOVER_N)
     sw = max(1, cols // HOVER_N)
@@ -355,7 +375,6 @@ def get_pop_overlay(geom_wkt: str, year: int):
     lon_arr = np.linspace(west, east,  hc)
     lat_arr = np.linspace(north, south, hr)
     lons_m, lats_m = np.meshgrid(lon_arr, lat_arr)
-    # Include all non-NaN pixels within the polygon (NaN = outside boundary or ocean NoData)
     valid_h = ~np.isnan(pop_h)
     hover = {
         "lons": lons_m[valid_h].tolist(),
@@ -367,7 +386,25 @@ def get_pop_overlay(geom_wkt: str, year: int):
         ],
     }
 
-    return data_uri, [west, south, east, north], hover
+    return data_uri_count, data_uri_dens, [west, south, east, north], hover
+
+
+def _pop_count_legend_html() -> str:
+    items = [
+        ("rgb(200,220,255)", "< 1"),
+        ("rgb(130,170,240)", "1–5"),
+        ("rgb(65,120,220)",  "5–25"),
+        ("rgb(30,80,190)",   "25–100"),
+        ("rgb(10,40,160)",   "100–500"),
+        ("rgb(5,10,100)",    "500+"),
+    ]
+    swatches = " ".join(
+        f'<span title="{lbl}" style="display:inline-block;width:14px;height:14px;'
+        f'background:{col};border-radius:2px;margin-right:2px;vertical-align:middle;"></span>'
+        f'<small style="margin-right:6px;">{lbl}</small>'
+        for col, lbl in items
+    )
+    return f'<div style="line-height:2;font-size:0.8rem;">Population count (people/pixel): {swatches}</div>'
 
 
 def _pop_legend_html() -> str:
@@ -752,7 +789,7 @@ with tab2:
         # ══════════════════════════════════════════════════════════════════════
         if map_county != "All counties" and not df_map.empty:
             st.markdown("---")
-            zoom_col1, zoom_col2 = st.columns(2)
+            zoom_col1, zoom_col2, zoom_col3 = st.columns(3)
 
             # ── Get county geometry + centroid ────────────────────────────────
             county_geoid_sel = df_map[
@@ -870,21 +907,21 @@ with tab2:
                 elif dem_img is None:
                     st.warning("DEM file not found — outline only.")
 
-            # ── Right column: population distribution map ─────────────────────
+            # ── Centre column: population count map (blue) ───────────────────
+            pop_img_count, pop_img_dens, pop_bounds, pop_hover = get_pop_overlay(geom.wkt, map_year)
+            _pop_bmap_map = {
+                "Streets (OpenStreetMap)": "open-street-map",
+                "Light (Carto)":           "carto-positron",
+                "Dark (Carto)":            "carto-darkmatter",
+            }
             with zoom_col2:
-                st.markdown(f"**{map_county} — population ({map_year})**")
-                _pop_bmap_map = {
-                    "Streets (OpenStreetMap)": "open-street-map",
-                    "Light (Carto)":           "carto-positron",
-                    "Dark (Carto)":            "carto-darkmatter",
-                }
+                st.markdown(f"**{map_county} — population count ({map_year})**")
                 p_sel, p_bmap, p_tog = st.columns([2, 1, 1])
                 pop_basemap_style  = p_sel.selectbox("Basemap", options=list(_pop_bmap_map.keys()), index=0, key="pop_basemap_county", label_visibility="collapsed")
-                show_pop_basemap   = p_bmap.toggle("Basemap",     value=True, key="pop_show_basemap_county")
-                show_pop           = p_tog.toggle("Population",   value=True, key="show_pop_county")
+                show_pop_basemap   = p_bmap.toggle("Basemap",   value=True, key="pop_show_basemap_county")
+                show_pop           = p_tog.toggle("Count",      value=True, key="show_pop_county")
                 pop_mapbox_style   = _pop_bmap_map[pop_basemap_style] if show_pop_basemap else "white-bg"
-                pop_img, pop_bounds, pop_hover = get_pop_overlay(geom.wkt, map_year)
-                if pop_img is None:
+                if pop_img_count is None:
                     st.info(f"WorldPop raster for {map_year} not found in data/worldpop/.")
                 else:
                     fig_pop = go.Figure()
@@ -905,7 +942,7 @@ with tab2:
                     pw84, ps84, pe84, pn84 = pop_bounds
                     _pop_layers = [{
                         "sourcetype": "image",
-                        "source": pop_img,
+                        "source": pop_img_count,
                         "coordinates": [
                             [pw84, pn84], [pe84, pn84],
                             [pe84, ps84], [pw84, ps84],
@@ -922,10 +959,61 @@ with tab2:
                         ),
                         height=440,
                         margin={"r": 0, "t": 10, "l": 0, "b": 0},
-                        uirevision=f"{map_county}_pop",
+                        uirevision=f"{map_county}_pop_count",
                     )
                     st.plotly_chart(fig_pop, use_container_width=True, config={"scrollZoom": True})
                     if show_pop:
+                        st.markdown(_pop_count_legend_html(), unsafe_allow_html=True)
+
+            # ── Right column: population density map (yellow→red) ────────────
+            with zoom_col3:
+                st.markdown(f"**{map_county} — population density ({map_year})**")
+                pd_sel, pd_bmap, pd_tog = st.columns([2, 1, 1])
+                pop_dens_bstyle  = pd_sel.selectbox("Basemap", options=list(_pop_bmap_map.keys()), index=0, key="pop_dens_basemap_county", label_visibility="collapsed")
+                show_dens_bmap   = pd_bmap.toggle("Basemap",  value=True, key="pop_dens_show_basemap_county")
+                show_dens        = pd_tog.toggle("Density",   value=True, key="show_dens_county")
+                pop_dens_style   = _pop_bmap_map[pop_dens_bstyle] if show_dens_bmap else "white-bg"
+                if pop_img_dens is None:
+                    st.info(f"WorldPop raster for {map_year} not found in data/worldpop/.")
+                else:
+                    fig_dens = go.Figure()
+                    fig_dens.add_trace(go.Scattermapbox(
+                        lon=boundary_lons, lat=boundary_lats, mode="lines",
+                        line=dict(color="black", width=2.5),
+                        hoverinfo="skip", showlegend=False,
+                    ))
+                    if pop_hover:
+                        fig_dens.add_trace(go.Scattermapbox(
+                            lon=pop_hover["lons"], lat=pop_hover["lats"],
+                            mode="markers",
+                            marker=dict(size=14, color="rgba(0,0,0,0)"),
+                            text=pop_hover["text"],
+                            hovertemplate="%{text}<extra></extra>",
+                            showlegend=False, name="",
+                        ))
+                    _dens_layers = [{
+                        "sourcetype": "image",
+                        "source": pop_img_dens,
+                        "coordinates": [
+                            [pw84, pn84], [pe84, pn84],
+                            [pe84, ps84], [pw84, ps84],
+                        ],
+                        "opacity": 0.85,
+                        "below": "traces",
+                    }] if show_dens else []
+                    fig_dens.update_layout(
+                        mapbox=dict(
+                            style=pop_dens_style,
+                            zoom=zoom_level,
+                            center={"lat": center_lat, "lon": center_lon},
+                            layers=_dens_layers,
+                        ),
+                        height=440,
+                        margin={"r": 0, "t": 10, "l": 0, "b": 0},
+                        uirevision=f"{map_county}_pop_dens",
+                    )
+                    st.plotly_chart(fig_dens, use_container_width=True, config={"scrollZoom": True})
+                    if show_dens:
                         st.markdown(_pop_legend_html(), unsafe_allow_html=True)
 
             # ── Elevation profile chart (below, full width) ───────────────────
@@ -988,7 +1076,7 @@ with tab2:
         # ══════════════════════════════════════════════════════════════════════
         elif map_county == "All counties":
             st.markdown("---")
-            state_col1, state_col2 = st.columns(2)
+            state_col1, state_col2, state_col3 = st.columns(3)
 
             # ── Statewide DEM map ─────────────────────────────────────────────
             with state_col1:
@@ -1061,21 +1149,22 @@ with tab2:
                     elif dem_img is None:
                         st.warning("DEM file not found — outline only.")
 
-            # ── Right column: statewide population distribution map ───────────
+            # ── Centre/right columns: statewide population count + density ───
+            _pop_bmap_map_s = {
+                "Streets (OpenStreetMap)": "open-street-map",
+                "Light (Carto)":           "carto-positron",
+                "Dark (Carto)":            "carto-darkmatter",
+            }
+            pop_img_count_s, pop_img_dens_s, pop_bounds_s, pop_hover_s = get_pop_overlay(state_wkt, map_year)
+
             with state_col2:
-                st.markdown(f"**Florida — population ({map_year})**")
-                _pop_bmap_map_s = {
-                    "Streets (OpenStreetMap)": "open-street-map",
-                    "Light (Carto)":           "carto-positron",
-                    "Dark (Carto)":            "carto-darkmatter",
-                }
+                st.markdown(f"**Florida — population count ({map_year})**")
                 ps_sel, ps_bmap, ps_tog = st.columns([2, 1, 1])
                 pop_basemap_style_s = ps_sel.selectbox("Basemap", options=list(_pop_bmap_map_s.keys()), index=0, key="pop_basemap_state", label_visibility="collapsed")
-                show_pop_basemap_s  = ps_bmap.toggle("Basemap",    value=True, key="pop_show_basemap_state")
-                show_pop_s          = ps_tog.toggle("Population",  value=True, key="show_pop_state")
+                show_pop_basemap_s  = ps_bmap.toggle("Basemap",  value=True, key="pop_show_basemap_state")
+                show_pop_s          = ps_tog.toggle("Count",     value=True, key="show_pop_state")
                 pop_mapbox_style_s  = _pop_bmap_map_s[pop_basemap_style_s] if show_pop_basemap_s else "white-bg"
-                pop_img_s, pop_bounds_s, pop_hover_s = get_pop_overlay(state_wkt, map_year)
-                if pop_img_s is None:
+                if pop_img_count_s is None:
                     st.info(f"WorldPop raster for {map_year} not found in data/worldpop/.")
                 else:
                     fig_pop_s = go.Figure()
@@ -1097,7 +1186,7 @@ with tab2:
                     pw84s, ps84s, pe84s, pn84s = pop_bounds_s
                     _pop_layers_s = [{
                         "sourcetype": "image",
-                        "source": pop_img_s,
+                        "source": pop_img_count_s,
                         "coordinates": [
                             [pw84s, pn84s], [pe84s, pn84s],
                             [pe84s, ps84s], [pw84s, ps84s],
@@ -1114,10 +1203,61 @@ with tab2:
                         ),
                         height=480,
                         margin={"r": 0, "t": 10, "l": 0, "b": 0},
-                        uirevision="state_pop",
+                        uirevision="state_pop_count",
                     )
                     st.plotly_chart(fig_pop_s, use_container_width=True, config={"scrollZoom": True})
                     if show_pop_s:
+                        st.markdown(_pop_count_legend_html(), unsafe_allow_html=True)
+
+            with state_col3:
+                st.markdown(f"**Florida — population density ({map_year})**")
+                pds_sel, pds_bmap, pds_tog = st.columns([2, 1, 1])
+                pop_dens_bstyle_s  = pds_sel.selectbox("Basemap", options=list(_pop_bmap_map_s.keys()), index=0, key="pop_dens_basemap_state", label_visibility="collapsed")
+                show_dens_bmap_s   = pds_bmap.toggle("Basemap",  value=True, key="pop_dens_show_basemap_state")
+                show_dens_s        = pds_tog.toggle("Density",   value=True, key="show_dens_state")
+                pop_dens_style_s   = _pop_bmap_map_s[pop_dens_bstyle_s] if show_dens_bmap_s else "white-bg"
+                if pop_img_dens_s is None:
+                    st.info(f"WorldPop raster for {map_year} not found in data/worldpop/.")
+                else:
+                    fig_dens_s = go.Figure()
+                    for lons, lats in state_rings:
+                        fig_dens_s.add_trace(go.Scattermapbox(
+                            lon=lons, lat=lats, mode="lines",
+                            line=dict(color="black", width=2),
+                            hoverinfo="skip", showlegend=False,
+                        ))
+                    if pop_hover_s:
+                        fig_dens_s.add_trace(go.Scattermapbox(
+                            lon=pop_hover_s["lons"], lat=pop_hover_s["lats"],
+                            mode="markers",
+                            marker=dict(size=14, color="rgba(0,0,0,0)"),
+                            text=pop_hover_s["text"],
+                            hovertemplate="%{text}<extra></extra>",
+                            showlegend=False, name="",
+                        ))
+                    _dens_layers_s = [{
+                        "sourcetype": "image",
+                        "source": pop_img_dens_s,
+                        "coordinates": [
+                            [pw84s, pn84s], [pe84s, pn84s],
+                            [pe84s, ps84s], [pw84s, ps84s],
+                        ],
+                        "opacity": 0.85,
+                        "below": "traces",
+                    }] if show_dens_s else []
+                    fig_dens_s.update_layout(
+                        mapbox=dict(
+                            style=pop_dens_style_s,
+                            zoom=5.5,
+                            center={"lat": 27.8, "lon": -81.5},
+                            layers=_dens_layers_s,
+                        ),
+                        height=480,
+                        margin={"r": 0, "t": 10, "l": 0, "b": 0},
+                        uirevision="state_pop_dens",
+                    )
+                    st.plotly_chart(fig_dens_s, use_container_width=True, config={"scrollZoom": True})
+                    if show_dens_s:
                         st.markdown(_pop_legend_html(), unsafe_allow_html=True)
 
             # ── Statewide elevation profile chart (below, full width) ─────────
