@@ -290,6 +290,7 @@ def get_pop_overlay(geom_wkt: str, year: int):
 
     try:
         with rasterio.open(pop_path) as src:
+            pop_nodata = src.nodata
             out_image, out_transform = rio_mask(
                 src, [geom_wgs84.__geo_interface__], crop=True, filled=False,
             )
@@ -307,24 +308,9 @@ def get_pop_overlay(geom_wkt: str, year: int):
         out_shape=(h, w), transform=out_transform, invert=False,
     )
     pop = pop_ma.filled(np.nan).astype(np.float32)
-
-    # Mask ocean pixels — DEM has NoData over ocean; mask both geometry-outside pixels
-    # and DEM's own nodata sentinel (large negative value like -9999 or -3.4e+38)
-    if os.path.exists(DEM_PATH):
-        try:
-            with rasterio.open(DEM_PATH) as dem_src:
-                dem_raw, _ = rio_mask(
-                    dem_src, [geom_wgs84.__geo_interface__], crop=True, filled=False,
-                )
-            dem_arr = dem_raw[0].filled(np.nan).astype(np.float32)
-            dem_arr[dem_arr < -100] = np.nan  # DEM nodata sentinel (ocean inside geometry)
-            if dem_arr.shape != (h, w):
-                row_idx = np.round(np.linspace(0, dem_arr.shape[0] - 1, h)).astype(int)
-                col_idx = np.round(np.linspace(0, dem_arr.shape[1] - 1, w)).astype(int)
-                dem_arr = dem_arr[np.ix_(row_idx, col_idx)]
-            pop[np.isnan(dem_arr)] = np.nan
-        except Exception:
-            pass
+    # rio_mask only masks outside-geometry pixels; also convert WorldPop's own NoData to NaN
+    if pop_nodata is not None:
+        pop[pop == np.float32(pop_nodata)] = np.nan
 
     west  = out_transform.c
     north = out_transform.f
