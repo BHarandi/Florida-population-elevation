@@ -901,7 +901,6 @@ with tab2:
                             zoom=zoom_level,
                             center={"lat": center_lat, "lon": center_lon},
                             layers=_pop_layers,
-                                "opacity": 0.85,
                         ),
                         height=440,
                         margin={"r": 0, "t": 10, "l": 0, "b": 0},
