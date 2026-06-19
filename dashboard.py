@@ -589,7 +589,22 @@ with tab1:
     if not selected_bands:
         st.info("Select at least one elevation band above.")
     elif df_snap.empty:
-        st.warning("No data for this selection.")
+        # Check whether any band has data for this county (to give a helpful message)
+        scope = "Statewide" if selected_area == "Florida (Statewide)" else "County"
+        county_bands_m = df_all[df_all["Scope"] == scope] if scope == "Statewide" else df_all[(df_all["Scope"] == scope) & (df_all["County_Name"] == selected_area)]
+        county_bands_m = county_bands_m["Elev_Band"].unique()
+        if use_feet:
+            available = [BAND_MAP_M_TO_FT.get(b, b) for b in county_bands_m if BAND_MAP_M_TO_FT.get(b, b) in BAND_ORDER_FT]
+            available = sorted(available, key=lambda x: BAND_ORDER_FT.index(x) if x in BAND_ORDER_FT else 99)
+        else:
+            available = [b for b in BAND_ORDER_M if b in county_bands_m]
+        if available:
+            st.warning(
+                f"No population recorded for the selected band(s) in **{selected_area}**. "
+                f"Available elevation bands: {', '.join(available)}."
+            )
+        else:
+            st.warning("No data for this selection.")
     else:
         total_pop = df_snap["Population"].sum()
         col_ctrl.metric("Total population", f"{total_pop:,.0f}")
