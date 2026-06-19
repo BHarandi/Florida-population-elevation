@@ -1075,6 +1075,18 @@ with tab3:
             flood_img, flood_bounds = get_flood_overlay(slr_geom_wkt, slr_m)
 
             fig_slr = go.Figure()
+            # Dummy trace — forces Plotly to render as mapbox instead of cartesian
+            fig_slr.add_trace(go.Scattermapbox(
+                lon=[], lat=[], mode="markers",
+                showlegend=False, hoverinfo="skip",
+            ))
+            # State/county boundary outline
+            for lons, lats in state_rings:
+                fig_slr.add_trace(go.Scattermapbox(
+                    lon=lons, lat=lats, mode="lines",
+                    line=dict(color="black", width=1.5),
+                    hoverinfo="skip", showlegend=False,
+                ))
             mapbox_cfg_slr = dict(
                 style=_slr_basemap_map[slr_basemap_style],
                 zoom=slr_zoom,
@@ -1091,8 +1103,8 @@ with tab3:
                     "opacity": 0.85,
                     "below": "traces",
                 }]
-            elif flood_img is None and os.path.exists(DEM_PATH):
-                st.info("Zoom in or select a smaller area if the map is slow to load.")
+            elif flood_img is None and not os.path.exists(DEM_PATH):
+                st.warning("DEM file not found — flood overlay unavailable.")
 
             fig_slr.update_layout(
                 mapbox=mapbox_cfg_slr,
