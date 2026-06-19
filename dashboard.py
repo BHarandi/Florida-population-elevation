@@ -800,12 +800,13 @@ with tab2:
                 yaxis_title="Population",
                 showlegend=False,
                 height=400,
-                width=750,
                 margin={"r": 10, "t": 50, "l": 10, "b": 50},
                 plot_bgcolor="#f8f9fa",
                 xaxis=dict(categoryorder="array", categoryarray=band_order),
             )
-            st.plotly_chart(fig_profile, use_container_width=False)
+            _, _chart_mid, _ = st.columns([1, 2, 1])
+            with _chart_mid:
+                st.plotly_chart(fig_profile, use_container_width=True)
 
         # ══════════════════════════════════════════════════════════════════════
         # STATEWIDE DEM — shown when no county is selected
@@ -936,12 +937,13 @@ with tab2:
                 yaxis_title="Population",
                 showlegend=False,
                 height=400,
-                width=750,
                 margin={"r": 10, "t": 50, "l": 10, "b": 50},
                 plot_bgcolor="#f8f9fa",
                 xaxis=dict(categoryorder="array", categoryarray=band_order),
             )
-            st.plotly_chart(fig_state_profile, use_container_width=False)
+            _, _state_chart_mid, _ = st.columns([1, 2, 1])
+            with _state_chart_mid:
+                st.plotly_chart(fig_state_profile, use_container_width=True)
 
         # ══════════════════════════════════════════════════════════════════════
         # DOWNLOAD SECTION
