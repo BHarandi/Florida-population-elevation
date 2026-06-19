@@ -360,7 +360,11 @@ def get_pop_overlay(geom_wkt: str, year: int):
     hover = {
         "lons": lons_m[valid_h].tolist(),
         "lats": lats_m[valid_h].tolist(),
-        "text": [f"{'< 1' if v * 100 < 1 else f'~{v * 100:.0f}'} people / km²" for v in pop_h[valid_h].tolist()],
+        "text": [
+            f"{'< 1 person' if v < 0.01 else f'~{v:.1f} people'} | "
+            f"{'< 1' if v * 100 < 1 else f'~{v * 100:.0f}'} people/km²"
+            for v in pop_h[valid_h].tolist()
+        ],
     }
 
     return data_uri, [west, south, east, north], hover
