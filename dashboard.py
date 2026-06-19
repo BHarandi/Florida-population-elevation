@@ -855,7 +855,16 @@ with tab2:
             # ── Right column: population distribution map ─────────────────────
             with zoom_col2:
                 st.markdown(f"**{map_county} — population ({map_year})**")
-                st.markdown("<div style='height:60px'></div>", unsafe_allow_html=True)
+                _pop_bmap_map = {
+                    "Streets (OpenStreetMap)": "open-street-map",
+                    "Light (Carto)":           "carto-positron",
+                    "Dark (Carto)":            "carto-darkmatter",
+                }
+                p_sel, p_bmap, p_tog = st.columns([2, 1, 1])
+                pop_basemap_style  = p_sel.selectbox("Basemap", options=list(_pop_bmap_map.keys()), index=0, key="pop_basemap_county", label_visibility="collapsed")
+                show_pop_basemap   = p_bmap.toggle("Basemap",     value=True, key="pop_show_basemap_county")
+                show_pop           = p_tog.toggle("Population",   value=True, key="show_pop_county")
+                pop_mapbox_style   = _pop_bmap_map[pop_basemap_style] if show_pop_basemap else "white-bg"
                 pop_img, pop_bounds, pop_hover = get_pop_overlay(geom.wkt, map_year)
                 if pop_img is None:
                     st.info(f"WorldPop raster for {map_year} not found in data/worldpop/.")
@@ -876,28 +885,31 @@ with tab2:
                             showlegend=False, name="",
                         ))
                     pw84, ps84, pe84, pn84 = pop_bounds
+                    _pop_layers = [{
+                        "sourcetype": "image",
+                        "source": pop_img,
+                        "coordinates": [
+                            [pw84, pn84], [pe84, pn84],
+                            [pe84, ps84], [pw84, ps84],
+                        ],
+                        "opacity": 0.85,
+                        "below": "traces",
+                    }] if show_pop else []
                     fig_pop.update_layout(
                         mapbox=dict(
-                            style="open-street-map",
+                            style=pop_mapbox_style,
                             zoom=zoom_level,
                             center={"lat": center_lat, "lon": center_lon},
-                            layers=[{
-                                "sourcetype": "image",
-                                "source": pop_img,
-                                "coordinates": [
-                                    [pw84, pn84], [pe84, pn84],
-                                    [pe84, ps84], [pw84, ps84],
-                                ],
+                            layers=_pop_layers,
                                 "opacity": 0.85,
-                                "below": "traces",
-                            }],
                         ),
                         height=440,
                         margin={"r": 0, "t": 10, "l": 0, "b": 0},
                         uirevision=f"{map_county}_pop",
                     )
                     st.plotly_chart(fig_pop, use_container_width=True)
-                    st.markdown(_pop_legend_html(), unsafe_allow_html=True)
+                    if show_pop:
+                        st.markdown(_pop_legend_html(), unsafe_allow_html=True)
 
             # ── Elevation profile chart (below, full width) ───────────────────
             st.markdown(f"**{map_county} — elevation profile ({map_year})**")
@@ -1035,7 +1047,16 @@ with tab2:
             # ── Right column: statewide population distribution map ───────────
             with state_col2:
                 st.markdown(f"**Florida — population ({map_year})**")
-                st.markdown("<div style='height:60px'></div>", unsafe_allow_html=True)
+                _pop_bmap_map_s = {
+                    "Streets (OpenStreetMap)": "open-street-map",
+                    "Light (Carto)":           "carto-positron",
+                    "Dark (Carto)":            "carto-darkmatter",
+                }
+                ps_sel, ps_bmap, ps_tog = st.columns([2, 1, 1])
+                pop_basemap_style_s = ps_sel.selectbox("Basemap", options=list(_pop_bmap_map_s.keys()), index=0, key="pop_basemap_state", label_visibility="collapsed")
+                show_pop_basemap_s  = ps_bmap.toggle("Basemap",    value=True, key="pop_show_basemap_state")
+                show_pop_s          = ps_tog.toggle("Population",  value=True, key="show_pop_state")
+                pop_mapbox_style_s  = _pop_bmap_map_s[pop_basemap_style_s] if show_pop_basemap_s else "white-bg"
                 pop_img_s, pop_bounds_s, pop_hover_s = get_pop_overlay(state_wkt, map_year)
                 if pop_img_s is None:
                     st.info(f"WorldPop raster for {map_year} not found in data/worldpop/.")
@@ -1057,28 +1078,30 @@ with tab2:
                             showlegend=False, name="",
                         ))
                     pw84s, ps84s, pe84s, pn84s = pop_bounds_s
+                    _pop_layers_s = [{
+                        "sourcetype": "image",
+                        "source": pop_img_s,
+                        "coordinates": [
+                            [pw84s, pn84s], [pe84s, pn84s],
+                            [pe84s, ps84s], [pw84s, ps84s],
+                        ],
+                        "opacity": 0.85,
+                        "below": "traces",
+                    }] if show_pop_s else []
                     fig_pop_s.update_layout(
                         mapbox=dict(
-                            style="open-street-map",
+                            style=pop_mapbox_style_s,
                             zoom=5.5,
                             center={"lat": 27.8, "lon": -81.5},
-                            layers=[{
-                                "sourcetype": "image",
-                                "source": pop_img_s,
-                                "coordinates": [
-                                    [pw84s, pn84s], [pe84s, pn84s],
-                                    [pe84s, ps84s], [pw84s, ps84s],
-                                ],
-                                "opacity": 0.85,
-                                "below": "traces",
-                            }],
+                            layers=_pop_layers_s,
                         ),
                         height=480,
                         margin={"r": 0, "t": 10, "l": 0, "b": 0},
                         uirevision="state_pop",
                     )
                     st.plotly_chart(fig_pop_s, use_container_width=True)
-                    st.markdown(_pop_legend_html(), unsafe_allow_html=True)
+                    if show_pop_s:
+                        st.markdown(_pop_legend_html(), unsafe_allow_html=True)
 
             # ── Statewide elevation profile chart (below, full width) ─────────
             st.markdown(f"**Florida — elevation profile ({map_year})**")
