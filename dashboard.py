@@ -349,7 +349,8 @@ def get_pop_overlay(geom_wkt: str, year: int):
     east  = west  + w * out_transform.a
     south = north + h * out_transform.e
 
-    MAX_PX = 1200
+    # Use full resolution for small areas (counties); cap at 3000px for large areas (statewide)
+    MAX_PX = 3000
     step_h = max(1, h // MAX_PX)
     step_w = max(1, w // MAX_PX)
     pop_ds          = pop[::step_h, ::step_w]
