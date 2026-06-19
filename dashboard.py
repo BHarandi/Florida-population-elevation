@@ -753,75 +753,131 @@ with tab2:
         # ══════════════════════════════════════════════════════════════════════
         elif map_county == "All counties":
             st.markdown("---")
-            st.markdown("**Florida — elevation map (DEM)**")
+            state_col1, state_col2 = st.columns(2)
 
-            state_wkt = load_state_geometry_wkt()
-            if state_wkt:
-                dem_img, dem_bounds, dem_hover = get_dem_overlay(state_wkt, unit_key)
+            # ── Statewide DEM map ─────────────────────────────────────────────
+            with state_col1:
+                st.markdown("**Florida — elevation map (DEM)**")
+                state_wkt = load_state_geometry_wkt()
+                if state_wkt:
+                    dem_img, dem_bounds, dem_hover = get_dem_overlay(state_wkt, unit_key)
 
-                _basemap_map_state = {
-                    "Streets (OpenStreetMap)": "open-street-map",
-                    "Light (Carto)":           "carto-positron",
-                    "Dark (Carto)":            "carto-darkmatter",
-                }
-                s_sel, s_bmap, s_dem = st.columns([2, 1, 1])
-                state_basemap_style = s_sel.selectbox(
-                    "Basemap style", options=list(_basemap_map_state.keys()),
-                    index=0, key="state_basemap_style", label_visibility="collapsed",
-                )
-                show_state_basemap = s_bmap.toggle("Basemap", value=True, key="state_show_basemap")
-                show_state_dem     = s_dem.toggle("DEM",     value=True, key="state_show_dem")
+                    _basemap_map_state = {
+                        "Streets (OpenStreetMap)": "open-street-map",
+                        "Light (Carto)":           "carto-positron",
+                        "Dark (Carto)":            "carto-darkmatter",
+                    }
+                    s_sel, s_bmap, s_dem = st.columns([2, 1, 1])
+                    state_basemap_style = s_sel.selectbox(
+                        "Basemap style", options=list(_basemap_map_state.keys()),
+                        index=0, key="state_basemap_style", label_visibility="collapsed",
+                    )
+                    show_state_basemap = s_bmap.toggle("Basemap", value=True, key="state_show_basemap")
+                    show_state_dem     = s_dem.toggle("DEM",     value=True, key="state_show_dem")
 
-                mapbox_style_state = _basemap_map_state[state_basemap_style] if show_state_basemap else "white-bg"
-                dem_opacity_state  = 0.78 if show_state_basemap else 1.0
+                    mapbox_style_state = _basemap_map_state[state_basemap_style] if show_state_basemap else "white-bg"
+                    dem_opacity_state  = 0.78 if show_state_basemap else 1.0
 
-                fig_state = go.Figure()
-                for lons, lats in state_rings:
-                    fig_state.add_trace(go.Scattermapbox(
-                        lon=lons, lat=lats, mode="lines",
-                        line=dict(color="black", width=2),
-                        hoverinfo="skip", showlegend=False,
+                    fig_state = go.Figure()
+                    for lons, lats in state_rings:
+                        fig_state.add_trace(go.Scattermapbox(
+                            lon=lons, lat=lats, mode="lines",
+                            line=dict(color="black", width=2),
+                            hoverinfo="skip", showlegend=False,
+                        ))
+
+                    mapbox_cfg_state = dict(
+                        style=mapbox_style_state,
+                        zoom=5.5,
+                        center={"lat": 27.8, "lon": -81.5},
+                    )
+                    if dem_img is not None and show_state_dem:
+                        w84, s84, e84, n84 = dem_bounds
+                        mapbox_cfg_state["layers"] = [{
+                            "sourcetype": "image",
+                            "source": dem_img,
+                            "coordinates": [
+                                [w84, n84], [e84, n84], [e84, s84], [w84, s84],
+                            ],
+                            "opacity": dem_opacity_state,
+                            "below": "traces",
+                        }]
+
+                    if dem_hover is not None and show_state_dem:
+                        fig_state.add_trace(go.Scattermapbox(
+                            lon=dem_hover["lons"], lat=dem_hover["lats"],
+                            mode="markers",
+                            marker=dict(size=14, color="rgba(0,0,0,0)"),
+                            text=dem_hover["text"],
+                            hovertemplate="%{text}<extra></extra>",
+                            showlegend=False, name="",
+                        ))
+
+                    fig_state.update_layout(
+                        mapbox=mapbox_cfg_state,
+                        height=480,
+                        margin={"r": 0, "t": 10, "l": 0, "b": 0},
+                        uirevision="state_dem",
+                    )
+                    st.plotly_chart(fig_state, use_container_width=True)
+
+                    if dem_img is not None and show_state_dem:
+                        st.markdown(_dem_legend_html(unit_key), unsafe_allow_html=True)
+                    elif dem_img is None:
+                        st.warning("DEM file not found — outline only.")
+
+            # ── Statewide elevation profile chart ────────────────────────────
+            with state_col2:
+                st.markdown(f"**Florida — elevation profile ({map_year})**")
+
+                elev_profile_state = df_all[
+                    (df_all["Scope"] == "Statewide") &
+                    (df_all["Year"]  == map_year)
+                ].copy()
+                elev_profile_state = to_display_bands(elev_profile_state, use_feet)
+                elev_profile_state["Elev_Band"] = pd.Categorical(
+                    elev_profile_state["Elev_Band"], categories=band_order, ordered=True)
+                elev_profile_state = elev_profile_state.sort_values("Elev_Band")
+
+                fig_state_profile = go.Figure()
+                for _, row in elev_profile_state.iterrows():
+                    color = band_colors.get(row["Elev_Band"], "#888888")
+                    fig_state_profile.add_trace(go.Bar(
+                        x=[row["Elev_Band"]],
+                        y=[row["Population"]],
+                        marker_color=color,
+                        marker_line_color="white",
+                        marker_line_width=1.5,
+                        name=str(row["Elev_Band"]),
+                        hovertemplate=(
+                            f"<b>{row['Elev_Band']}</b><br>"
+                            f"Population: {row['Population']:,}<br>"
+                            f"% of State: {row['Pct_of_State']:.2f}%<extra></extra>"
+                        ),
                     ))
 
-                mapbox_cfg_state = dict(
-                    style=mapbox_style_state,
-                    zoom=5.5,
-                    center={"lat": 27.8, "lon": -81.5},
+                fig_state_profile.add_trace(go.Scatter(
+                    x=elev_profile_state["Elev_Band"].tolist(),
+                    y=elev_profile_state["Population"].tolist(),
+                    mode="lines",
+                    line=dict(color="rgba(60,60,60,0.6)", width=2, shape="spline"),
+                    fill="tozeroy",
+                    fillcolor="rgba(100,149,237,0.12)",
+                    showlegend=False,
+                    hoverinfo="skip",
+                ))
+
+                fig_state_profile.update_layout(
+                    title=f"Population by elevation — Florida ({map_year})",
+                    xaxis_title=f"Elevation ({unit_label})",
+                    yaxis_title="Population",
+                    showlegend=False,
+                    height=460,
+                    margin={"r": 10, "t": 50, "l": 10, "b": 50},
+                    plot_bgcolor="#f8f9fa",
+                    xaxis=dict(categoryorder="array", categoryarray=band_order),
                 )
-                if dem_img is not None and show_state_dem:
-                    w84, s84, e84, n84 = dem_bounds
-                    mapbox_cfg_state["layers"] = [{
-                        "sourcetype": "image",
-                        "source": dem_img,
-                        "coordinates": [
-                            [w84, n84], [e84, n84], [e84, s84], [w84, s84],
-                        ],
-                        "opacity": dem_opacity_state,
-                        "below": "traces",
-                    }]
-
-                if dem_hover is not None and show_state_dem:
-                    fig_state.add_trace(go.Scattermapbox(
-                        lon=dem_hover["lons"], lat=dem_hover["lats"],
-                        mode="markers",
-                        marker=dict(size=14, color="rgba(0,0,0,0)"),
-                        text=dem_hover["text"],
-                        hovertemplate="%{text}<extra></extra>",
-                        showlegend=False, name="",
-                    ))
-
-                fig_state.update_layout(
-                    mapbox=mapbox_cfg_state,
-                    height=520,
-                    margin={"r": 0, "t": 10, "l": 0, "b": 0},
-                    uirevision="state_dem",
-                )
-                st.plotly_chart(fig_state, use_container_width=True)
-
-                if dem_img is not None and show_state_dem:
-                    st.markdown(_dem_legend_html(unit_key), unsafe_allow_html=True)
-                elif dem_img is None:
-                    st.warning("DEM file not found — outline only.")
+                st.plotly_chart(fig_state_profile, use_container_width=True)
 
         # ══════════════════════════════════════════════════════════════════════
         # DOWNLOAD SECTION
