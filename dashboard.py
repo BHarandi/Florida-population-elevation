@@ -259,7 +259,7 @@ def get_flood_overlay(geom_wkt: str, sea_level_m: float):
     east  = west  + w * out_transform.a
     south = north + h * out_transform.e
 
-    MAX_PX = 600
+    MAX_PX = 2000
     step_h = max(1, h // MAX_PX)
     step_w = max(1, w // MAX_PX)
     dem_ds          = dem[::step_h, ::step_w]
@@ -267,9 +267,9 @@ def get_flood_overlay(geom_wkt: str, sea_level_m: float):
     valid           = ~np.isnan(dem_ds) & ~poly_outside_ds
 
     rgba = np.zeros((dem_ds.shape[0], dem_ds.shape[1], 4), dtype=np.uint8)
-    rgba[valid & (dem_ds < 0)]                             = [ 80, 140, 200, 170]  # blue — already below sea level
-    rgba[valid & (dem_ds >= 0) & (dem_ds <= sea_level_m)] = [220,  40,  40, 150]  # red semi-transparent — flooded
-    rgba[poly_outside_ds]                                  = [  0,   0,   0,   0]  # transparent outside (safe land shows basemap)
+    rgba[valid & (dem_ds < 0)]                             = [ 30, 100, 210, 200]  # blue — already below sea level
+    rgba[valid & (dem_ds >= 0) & (dem_ds <= sea_level_m)] = [255,  80,   0, 210]  # vivid orange-red — flooded
+    rgba[poly_outside_ds]                                  = [  0,   0,   0,   0]  # transparent outside
 
     img = Image.fromarray(rgba, "RGBA")
     buf = io.BytesIO()
@@ -1425,7 +1425,7 @@ with tab3:
 
             # Legend
             st.markdown(
-                '<span style="display:inline-block;width:14px;height:14px;background:#d64541;'
+                '<span style="display:inline-block;width:14px;height:14px;background:#FF5000;'
                 'border-radius:2px;margin-right:4px;vertical-align:middle;"></span>'
                 f'<small>Flooded at +{slr_label} sea level rise</small>&nbsp;&nbsp;&nbsp;'
                 '<span style="display:inline-block;width:14px;height:14px;background:#2166ac;'
