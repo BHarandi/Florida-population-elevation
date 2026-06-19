@@ -347,12 +347,10 @@ fl_geojson, county_meta = load_county_geojson()
 state_rings = load_state_boundary()
 
 
-# ── Sidebar ───────────────────────────────────────────────────────────────────
-st.sidebar.header("Filters")
-
-unit      = st.sidebar.radio("Elevation unit", ["Feet (ft)", "Metric (m)"], horizontal=True)
-use_feet  = unit == "Feet (ft)"   # default: Feet
-unit_key  = "Feet" if use_feet else "Metric"
+# ── Filter state (widgets live inside the Distribution tab) ───────────────────
+_unit      = st.session_state.get("dist_unit", "Feet (ft)")
+use_feet   = _unit == "Feet (ft)"
+unit_key   = "Feet" if use_feet else "Metric"
 band_order  = BAND_ORDER_FT  if use_feet else BAND_ORDER_M
 band_colors = BAND_COLORS_FT if use_feet else BAND_COLORS_M
 unit_label  = "ft above MSL" if use_feet else "m above MSL"
@@ -362,28 +360,15 @@ all_years = sorted(df_all["Year"].unique())
 county_options = ["Florida (Statewide)"] + sorted(
     df_all[df_all["Scope"] == "County"]["County_Name"].unique()
 )
-selected_area = st.sidebar.selectbox("County / Statewide", county_options,
-                                      key="county_selector")
 
-# When unit changes, reset bands to the new unit's full list on the same rerun
-# (setting the key directly avoids a 2-rerun flash that del would cause)
-if "elev_bands" in st.session_state:
-    stale = [b for b in st.session_state["elev_bands"] if b not in band_order]
+# Reset bands when unit changes
+if "dist_bands" in st.session_state:
+    stale = [b for b in st.session_state["dist_bands"] if b not in band_order]
     if stale:
-        st.session_state["elev_bands"] = band_order
+        st.session_state["dist_bands"] = band_order
 
-selected_bands = st.sidebar.multiselect(
-    "Elevation bands", options=band_order, default=band_order, key="elev_bands",
-)
-
-st.sidebar.markdown("---")
-st.sidebar.caption(
-    "Population source: WorldPop 100 m rasters  \n"
-    "Elevation source: USGS 1/3 arc-second DEM  \n"
-    "Geography: Florida (FIPS 12)  \n"
-    "Author: Bella Harandi  \n"
-    "University of Central Florida (UCF)  |  2026"
-)
+selected_area  = st.session_state.get("dist_county", "Florida (Statewide)")
+selected_bands = st.session_state.get("dist_bands",  band_order)
 
 
 # ── Filter helpers ────────────────────────────────────────────────────────────
@@ -415,13 +400,25 @@ tab1, tab2, tab3 = st.tabs(["Distribution", "Map", "Sea Level Rise"])
 # TAB 1 — Distribution (single year snapshot)
 # ─────────────────────────────────────────────────────────────────────────────
 with tab1:
+    # ── Inline filters ────────────────────────────────────────────────────────
+    fi_c1, fi_c2, fi_c3 = st.columns([1, 1, 3])
+    with fi_c1:
+        st.radio("Elevation unit", ["Feet (ft)", "Metric (m)"],
+                 horizontal=True, key="dist_unit")
+    with fi_c2:
+        st.selectbox("County / Statewide", county_options, key="dist_county")
+    with fi_c3:
+        st.multiselect("Elevation bands", options=band_order,
+                       default=band_order, key="dist_bands")
+    st.markdown("---")
+
     col_ctrl, _ = st.columns([1, 3])
     snap_year   = col_ctrl.selectbox("Select year", all_years,
                                       index=len(all_years) - 1, key="snap_year")
     df_snap = df_area[df_area["Year"] == snap_year].sort_values("Elev_Band")
 
     if not selected_bands:
-        st.info("Select at least one elevation band in the sidebar.")
+        st.info("Select at least one elevation band above.")
     elif df_snap.empty:
         st.warning("No data for this selection.")
     else:
@@ -1030,7 +1027,7 @@ with tab3:
         slr_use_feet   = not slr_use_meters
 
         if slr_use_feet:
-            slr_ft    = st.slider("Sea level rise (ft)", 0.0, 200.0, 1.0, 0.5, key="slr_slider")
+            slr_ft    = st.slider("Sea level rise (ft)", 0.0, 60.0, 1.0, 0.5, key="slr_slider")
             slr_m     = slr_ft / 3.28084
             slr_label = f"{slr_ft:.1f} ft"
             slr_band_order = BAND_ORDER_FT
@@ -1053,7 +1050,7 @@ with tab3:
             "Dark (Carto)":            "carto-darkmatter",
         }
         slr_basemap_style = st.selectbox(
-            "Basemap", options=list(_slr_basemap_map.keys()), index=1, key="slr_basemap",
+            "Basemap", options=list(_slr_basemap_map.keys()), index=0, key="slr_basemap",
         )
 
     # ── Get geometry ─────────────────────────────────────────────────────────
