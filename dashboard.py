@@ -940,7 +940,7 @@ with tab2:
                 pd_sel, pd_bmap, pd_tog = st.columns([2, 1, 1])
                 pop_dens_bstyle  = pd_sel.selectbox("Basemap", options=list(_pop_bmap_map.keys()), index=0, key="pop_dens_basemap_county", label_visibility="collapsed")
                 show_dens_bmap   = pd_bmap.toggle("Basemap",  value=True, key="pop_dens_show_basemap_county")
-                show_dens        = pd_tog.toggle("Density",   value=True, key="show_dens_county")
+                show_dens        = pd_tog.toggle("Population density",   value=True, key="show_dens_county")
                 pop_dens_style   = _pop_bmap_map[pop_dens_bstyle] if show_dens_bmap else "white-bg"
                 if pop_img_dens is None:
                     st.info(f"WorldPop raster for {map_year} not found in data/worldpop/.")
@@ -1132,7 +1132,7 @@ with tab2:
                 pds_sel, pds_bmap, pds_tog = st.columns([2, 1, 1])
                 pop_dens_bstyle_s  = pds_sel.selectbox("Basemap", options=list(_pop_bmap_map_s.keys()), index=0, key="pop_dens_basemap_state", label_visibility="collapsed")
                 show_dens_bmap_s   = pds_bmap.toggle("Basemap",  value=True, key="pop_dens_show_basemap_state")
-                show_dens_s        = pds_tog.toggle("Density",   value=True, key="show_dens_state")
+                show_dens_s        = pds_tog.toggle("Population density",   value=True, key="show_dens_state")
                 pop_dens_style_s   = _pop_bmap_map_s[pop_dens_bstyle_s] if show_dens_bmap_s else "white-bg"
                 if pop_img_dens_s is None:
                     st.info(f"WorldPop raster for {map_year} not found in data/worldpop/.")
