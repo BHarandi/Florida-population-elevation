@@ -1,5 +1,5 @@
 """
-Florida Population Density by Elevation — Streamlit Dashboard
+Florida Population by Elevation — Streamlit Dashboard
 Author: Bella Harandi
 Date: 2026
 
@@ -83,6 +83,16 @@ def load_state_boundary():
             coords = list(poly.exterior.coords)
             rings.append(([c[0] for c in coords], [c[1] for c in coords]))
     return rings
+
+
+@st.cache_data
+def load_state_geometry_wkt():
+    """Return Florida state boundary as a single WGS84 WKT string for DEM clipping."""
+    if not os.path.exists(STATE_SHP):
+        return None
+    from shapely.ops import unary_union
+    gdf = gpd.read_file(STATE_SHP).to_crs(epsg=4326)
+    return unary_union(gdf.geometry).wkt
 
 
 @st.cache_data(show_spinner="Reading DEM …")
@@ -263,7 +273,7 @@ def to_query_bands(bands, use_feet):
 df_all = load_data()
 
 # ── Header ────────────────────────────────────────────────────────────────────
-st.title("Florida Population Density by Elevation (2010–2025)")
+st.title("Florida Population by Elevation (2010–2025)")
 st.caption("Author: Bella Harandi")
 st.caption("University of Central Florida (UCF)  |  2026")
 
@@ -739,6 +749,81 @@ with tab2:
                 st.plotly_chart(fig_profile, use_container_width=True)
 
         # ══════════════════════════════════════════════════════════════════════
+        # STATEWIDE DEM — shown when no county is selected
+        # ══════════════════════════════════════════════════════════════════════
+        elif map_county == "All counties":
+            st.markdown("---")
+            st.markdown("**Florida — elevation map (DEM)**")
+
+            state_wkt = load_state_geometry_wkt()
+            if state_wkt:
+                dem_img, dem_bounds, dem_hover = get_dem_overlay(state_wkt, unit_key)
+
+                _basemap_map_state = {
+                    "Streets (OpenStreetMap)": "open-street-map",
+                    "Light (Carto)":           "carto-positron",
+                    "Dark (Carto)":            "carto-darkmatter",
+                }
+                s_sel, s_bmap, s_dem = st.columns([2, 1, 1])
+                state_basemap_style = s_sel.selectbox(
+                    "Basemap style", options=list(_basemap_map_state.keys()),
+                    index=0, key="state_basemap_style", label_visibility="collapsed",
+                )
+                show_state_basemap = s_bmap.toggle("Basemap", value=True, key="state_show_basemap")
+                show_state_dem     = s_dem.toggle("DEM",     value=True, key="state_show_dem")
+
+                mapbox_style_state = _basemap_map_state[state_basemap_style] if show_state_basemap else "white-bg"
+                dem_opacity_state  = 0.78 if show_state_basemap else 1.0
+
+                fig_state = go.Figure()
+                for lons, lats in state_rings:
+                    fig_state.add_trace(go.Scattermapbox(
+                        lon=lons, lat=lats, mode="lines",
+                        line=dict(color="black", width=2),
+                        hoverinfo="skip", showlegend=False,
+                    ))
+
+                mapbox_cfg_state = dict(
+                    style=mapbox_style_state,
+                    zoom=5.5,
+                    center={"lat": 27.8, "lon": -81.5},
+                )
+                if dem_img is not None and show_state_dem:
+                    w84, s84, e84, n84 = dem_bounds
+                    mapbox_cfg_state["layers"] = [{
+                        "sourcetype": "image",
+                        "source": dem_img,
+                        "coordinates": [
+                            [w84, n84], [e84, n84], [e84, s84], [w84, s84],
+                        ],
+                        "opacity": dem_opacity_state,
+                        "below": "traces",
+                    }]
+
+                if dem_hover is not None and show_state_dem:
+                    fig_state.add_trace(go.Scattermapbox(
+                        lon=dem_hover["lons"], lat=dem_hover["lats"],
+                        mode="markers",
+                        marker=dict(size=14, color="rgba(0,0,0,0)"),
+                        text=dem_hover["text"],
+                        hovertemplate="%{text}<extra></extra>",
+                        showlegend=False, name="",
+                    ))
+
+                fig_state.update_layout(
+                    mapbox=mapbox_cfg_state,
+                    height=520,
+                    margin={"r": 0, "t": 10, "l": 0, "b": 0},
+                    uirevision="state_dem",
+                )
+                st.plotly_chart(fig_state, use_container_width=True)
+
+                if dem_img is not None and show_state_dem:
+                    st.markdown(_dem_legend_html(unit_key), unsafe_allow_html=True)
+                elif dem_img is None:
+                    st.warning("DEM file not found — outline only.")
+
+        # ══════════════════════════════════════════════════════════════════════
         # DOWNLOAD SECTION
         # ══════════════════════════════════════════════════════════════════════
         st.markdown("---")
@@ -811,7 +896,7 @@ with tab2:
 # ── Footer ────────────────────────────────────────────────────────────────────
 st.markdown("---")
 st.caption(
-    "Florida Population Density by Elevation (2010–2025)  |  "
+    "Florida Population by Elevation (2010–2025)  |  "
     "Author: Bella Harandi  |  University of Central Florida  |  2026  |  "
     "Data: WorldPop 100 m rasters + USGS 1/3 arc-second DEM"
 )
