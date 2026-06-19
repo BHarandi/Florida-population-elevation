@@ -308,6 +308,22 @@ def get_pop_overlay(geom_wkt: str, year: int):
     )
     pop = pop_ma.filled(np.nan).astype(np.float32)
 
+    # Mask ocean pixels using DEM — NAD83 ≈ WGS84 in Florida at 100 m scale (< 1 m error)
+    if os.path.exists(DEM_PATH):
+        try:
+            with rasterio.open(DEM_PATH) as dem_src:
+                dem_raw, _ = rio_mask(
+                    dem_src, [geom_wgs84.__geo_interface__], crop=True, filled=True, fill_value=0,
+                )
+            dem_arr = dem_raw[0].astype(np.float32)
+            if dem_arr.shape != (h, w):
+                row_idx = np.round(np.linspace(0, dem_arr.shape[0] - 1, h)).astype(int)
+                col_idx = np.round(np.linspace(0, dem_arr.shape[1] - 1, w)).astype(int)
+                dem_arr = dem_arr[np.ix_(row_idx, col_idx)]
+            pop[dem_arr < 0] = np.nan
+        except Exception:
+            pass
+
     west  = out_transform.c
     north = out_transform.f
     east  = west  + w * out_transform.a
