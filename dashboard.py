@@ -310,6 +310,21 @@ def get_pop_overlay(geom_wkt: str, year: int):
     )
     pop = pop_ma.filled(np.nan).astype(np.float32)
 
+    # Mask ocean pixels using DEM (fixes bilinear-resampling bleed at coastlines)
+    if os.path.exists(DEM_PATH):
+        try:
+            with rasterio.open(DEM_PATH) as dem_src:
+                dem_raw, _ = rio_mask(
+                    dem_src, [geom_4269.__geo_interface__], crop=True, filled=True, fill_value=0,
+                )
+            dem_arr = dem_raw[0].astype(np.float32)
+            if dem_arr.shape != (h, w):
+                row_idx = np.round(np.linspace(0, dem_arr.shape[0] - 1, h)).astype(int)
+                col_idx = np.round(np.linspace(0, dem_arr.shape[1] - 1, w)).astype(int)
+                dem_arr = dem_arr[np.ix_(row_idx, col_idx)]
+            pop[dem_arr < 0] = np.nan
+        except Exception:
+            pass
     west  = out_transform.c
     north = out_transform.f
     east  = west  + w * out_transform.a
@@ -353,7 +368,8 @@ def get_pop_overlay(geom_wkt: str, year: int):
     lon_arr = np.linspace(west, east,  hc)
     lat_arr = np.linspace(north, south, hr)
     lons_m, lats_m = np.meshgrid(lon_arr, lat_arr)
-    valid_h = ~np.isnan(pop_h) & (pop_h > 0)
+    # Include all non-NaN pixels within the polygon (NaN = outside boundary or ocean NoData)
+    valid_h = ~np.isnan(pop_h)
     hover = {
         "lons": lons_m[valid_h].tolist(),
         "lats": lats_m[valid_h].tolist(),
