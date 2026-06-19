@@ -357,7 +357,7 @@ def get_pop_overlay(geom_wkt: str, year: int):
     hover = {
         "lons": lons_m[valid_h].tolist(),
         "lats": lats_m[valid_h].tolist(),
-        "text": [f"~{v * 100:.0f} people / km²" for v in pop_h[valid_h].tolist()],
+        "text": [f"{'< 1' if v * 100 < 1 else f'~{v * 100:.0f}'} people / km²" for v in pop_h[valid_h].tolist()],
     }
 
     return data_uri, [west, south, east, north], hover
@@ -845,7 +845,7 @@ with tab2:
                     margin={"r": 0, "t": 10, "l": 0, "b": 0},
                     uirevision=map_county,  # preserve user zoom/pan unless county changes
                 )
-                st.plotly_chart(fig_zoom, use_container_width=True)
+                st.plotly_chart(fig_zoom, use_container_width=True, config={"scrollZoom": True})
 
                 if dem_img is not None and show_dem:
                     st.markdown(_dem_legend_html(unit_key), unsafe_allow_html=True)
@@ -906,7 +906,7 @@ with tab2:
                         margin={"r": 0, "t": 10, "l": 0, "b": 0},
                         uirevision=f"{map_county}_pop",
                     )
-                    st.plotly_chart(fig_pop, use_container_width=True)
+                    st.plotly_chart(fig_pop, use_container_width=True, config={"scrollZoom": True})
                     if show_pop:
                         st.markdown(_pop_legend_html(), unsafe_allow_html=True)
 
@@ -1036,7 +1036,7 @@ with tab2:
                         margin={"r": 0, "t": 10, "l": 0, "b": 0},
                         uirevision="state_dem",
                     )
-                    st.plotly_chart(fig_state, use_container_width=True)
+                    st.plotly_chart(fig_state, use_container_width=True, config={"scrollZoom": True})
 
                     if dem_img is not None and show_state_dem:
                         st.markdown(_dem_legend_html(unit_key), unsafe_allow_html=True)
@@ -1098,7 +1098,7 @@ with tab2:
                         margin={"r": 0, "t": 10, "l": 0, "b": 0},
                         uirevision="state_pop",
                     )
-                    st.plotly_chart(fig_pop_s, use_container_width=True)
+                    st.plotly_chart(fig_pop_s, use_container_width=True, config={"scrollZoom": True})
                     if show_pop_s:
                         st.markdown(_pop_legend_html(), unsafe_allow_html=True)
 
@@ -1345,7 +1345,7 @@ with tab3:
                 margin={"r": 0, "t": 10, "l": 0, "b": 0},
                 uirevision=f"{slr_area}_{slr_m}",
             )
-            st.plotly_chart(fig_slr, use_container_width=True)
+            st.plotly_chart(fig_slr, use_container_width=True, config={"scrollZoom": True})
 
             # Legend
             st.markdown(
