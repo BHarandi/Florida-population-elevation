@@ -266,9 +266,10 @@ def get_flood_overlay(geom_wkt: str, sea_level_m: float):
     valid           = ~np.isnan(dem_ds) & ~poly_outside_ds
 
     rgba = np.zeros((dem_ds.shape[0], dem_ds.shape[1], 4), dtype=np.uint8)
-    rgba[valid & (dem_ds < 0)]                          = [33,  102, 172, 210]  # deep blue — already below sea level
-    rgba[valid & (dem_ds >= 0) & (dem_ds <= sea_level_m)] = [214,  69,  65, 210]  # red — flooded
-    rgba[poly_outside_ds]                               = [0,   0,   0,   0]   # transparent outside
+    rgba[valid & (dem_ds < 0)]                             = [ 33, 102, 172, 180]  # deep blue — already below sea level
+    rgba[valid & (dem_ds >= 0) & (dem_ds <= sea_level_m)] = [214,  69,  65, 150]  # red — flooded (semi-transparent)
+    rgba[valid & (dem_ds > sea_level_m)]                   = [120, 180, 100,  40]  # faint green — safe land
+    rgba[poly_outside_ds]                                  = [  0,   0,   0,   0]  # transparent outside
 
     img = Image.fromarray(rgba, "RGBA")
     buf = io.BytesIO()
@@ -1024,13 +1025,25 @@ with tab3:
         slr_year = st.selectbox(
             "Year", all_years, index=len(all_years) - 1, key="slr_year",
         )
-        if use_feet:
-            slr_ft   = st.slider("Sea level rise (ft)", 0.0, 30.0, 1.0, 0.5, key="slr_slider")
-            slr_m    = slr_ft / 3.28084
+
+        # Independent unit toggle — does not follow the sidebar
+        u_left, u_mid, u_right = st.columns([2, 1, 2])
+        u_left.markdown("<div style='text-align:right;padding-top:6px;'>Feet</div>", unsafe_allow_html=True)
+        slr_use_meters = u_mid.toggle("", value=False, key="slr_unit_toggle", label_visibility="collapsed")
+        u_right.markdown("<div style='padding-top:6px;'>Meters</div>", unsafe_allow_html=True)
+        slr_use_feet = not slr_use_meters
+
+        if slr_use_feet:
+            slr_ft    = st.slider("Sea level rise (ft)", 0.0, 30.0, 1.0, 0.5, key="slr_slider")
+            slr_m     = slr_ft / 3.28084
             slr_label = f"{slr_ft:.1f} ft"
+            slr_band_order  = BAND_ORDER_FT
+            slr_unit_label  = "ft above MSL"
         else:
-            slr_m    = st.slider("Sea level rise (m)", 0.0, 10.0, 0.3, 0.1, key="slr_slider")
+            slr_m     = st.slider("Sea level rise (m)", 0.0, 10.0, 0.3, 0.1, key="slr_slider")
             slr_label = f"{slr_m:.1f} m"
+            slr_band_order  = BAND_ORDER_M
+            slr_unit_label  = "m above MSL"
 
         _slr_basemap_map = {
             "Streets (OpenStreetMap)": "open-street-map",
@@ -1147,15 +1160,15 @@ with tab3:
     r2.metric("Total population",   f"{total_pop_slr:,.0f}")
     r3.metric("% at risk",          f"{pct_at_risk:.1f}%")
 
-    at_risk_display = to_display_bands(at_risk_df.copy(), use_feet)
+    at_risk_display = to_display_bands(at_risk_df.copy(), slr_use_feet)
     at_risk_display["Elev_Band"] = pd.Categorical(
-        at_risk_display["Elev_Band"], categories=band_order, ordered=True)
+        at_risk_display["Elev_Band"], categories=slr_band_order, ordered=True)
     at_risk_display = at_risk_display.sort_values("Elev_Band")
     at_risk_display["Status"] = at_risk_display["at_risk"].map(
         {True: "At risk", False: "Safe"})
     st.dataframe(
         at_risk_display[["Elev_Band", "Population", "Pct_of_State", "Status"]]
-        .rename(columns={"Elev_Band": f"Elevation ({unit_label})", "Pct_of_State": "% State"})
+        .rename(columns={"Elev_Band": f"Elevation ({slr_unit_label})", "Pct_of_State": "% State"})
         .reset_index(drop=True),
         use_container_width=True, hide_index=True,
     )
