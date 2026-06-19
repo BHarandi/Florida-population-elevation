@@ -588,7 +588,17 @@ with tab2:
             map_year = st.selectbox("Year", all_years,
                                     index=len(all_years) - 1, key="map_year")
 
-            band_options = ["All elevations"] + band_order
+            map_unit      = st.radio("Elevation unit", ["Feet (ft)", "Metric (m)"],
+                                     horizontal=True, key="map_unit")
+            map_use_feet  = map_unit == "Feet (ft)"
+            map_band_order = BAND_ORDER_FT if map_use_feet else BAND_ORDER_M
+            map_unit_label = "ft above MSL" if map_use_feet else "m above MSL"
+
+            # Reset band selection if unit changed
+            if "map_band" in st.session_state and st.session_state["map_band"] not in (["All elevations"] + map_band_order):
+                st.session_state["map_band"] = "All elevations"
+
+            band_options = ["All elevations"] + map_band_order
             map_band = st.selectbox("Elevation band", band_options, key="map_band")
 
             map_county_options = ["All counties"] + sorted(
@@ -625,7 +635,7 @@ with tab2:
             df_map = df_all[
                 (df_all["Scope"]     == "County") &
                 (df_all["Year"]      == map_year) &
-                (df_all["Elev_Band"] == to_query_band(map_band, use_feet))
+                (df_all["Elev_Band"] == to_query_band(map_band, map_use_feet))
             ][["County_GEOID", "County_Name", "Population", "Pct_of_State"]].copy()
             band_title = map_band
 
@@ -701,15 +711,15 @@ with tab2:
             (df_all["Scope"] == det_scope) &
             (df_all["Year"]  == map_year)
         ].copy()
-        detail = to_display_bands(detail, use_feet)
+        detail = to_display_bands(detail, map_use_feet)
         if map_county != "All counties":
             detail = detail[detail["County_Name"] == map_county]
 
         detail["Elev_Band"] = pd.Categorical(
-            detail["Elev_Band"], categories=band_order, ordered=True)
+            detail["Elev_Band"], categories=map_band_order, ordered=True)
         detail = detail.sort_values("Elev_Band")
 
-        band_col = f"Band ({unit_label})"
+        band_col = f"Band ({map_unit_label})"
         detail_display = (
             detail[["Elev_Band", "Population", "Pct_of_State"]]
             .rename(columns={"Elev_Band": band_col, "Pct_of_State": "% State"})
@@ -762,7 +772,7 @@ with tab2:
             with zoom_col1:
                 st.markdown(f"**{map_county} — elevation map (DEM)**")
 
-                dem_img, dem_bounds, dem_hover = get_dem_overlay(geom.wkt, unit_key)
+                dem_img, dem_bounds, dem_hover = get_dem_overlay(geom.wkt, "Feet" if map_use_feet else "Metric")
 
                 # Basemap + DEM layer controls
                 _basemap_map = {
@@ -848,7 +858,7 @@ with tab2:
                 st.plotly_chart(fig_zoom, use_container_width=True, config={"scrollZoom": True})
 
                 if dem_img is not None and show_dem:
-                    st.markdown(_dem_legend_html(unit_key), unsafe_allow_html=True)
+                    st.markdown(_dem_legend_html("Feet" if map_use_feet else "Metric"), unsafe_allow_html=True)
                 elif dem_img is None:
                     st.warning("DEM file not found — outline only.")
 
@@ -918,14 +928,15 @@ with tab2:
                 (df_all["Year"]        == map_year) &
                 (df_all["County_Name"] == map_county)
             ].copy()
-            elev_profile = to_display_bands(elev_profile, use_feet)
+            elev_profile = to_display_bands(elev_profile, map_use_feet)
             elev_profile["Elev_Band"] = pd.Categorical(
-                elev_profile["Elev_Band"], categories=band_order, ordered=True)
+                elev_profile["Elev_Band"], categories=map_band_order, ordered=True)
             elev_profile = elev_profile.sort_values("Elev_Band")
 
+            map_band_colors = BAND_COLORS_FT if map_use_feet else BAND_COLORS_M
             fig_profile = go.Figure()
             for _, row in elev_profile.iterrows():
-                color = band_colors.get(row["Elev_Band"], "#888888")
+                color = map_band_colors.get(row["Elev_Band"], "#888888")
                 fig_profile.add_trace(go.Bar(
                     x=[row["Elev_Band"]],
                     y=[row["Population"]],
@@ -953,13 +964,13 @@ with tab2:
 
             fig_profile.update_layout(
                 title=f"Population by elevation — {map_county}",
-                xaxis_title=f"Elevation ({unit_label})",
+                xaxis_title=f"Elevation ({map_unit_label})",
                 yaxis_title="Population",
                 showlegend=False,
                 height=400,
                 margin={"r": 10, "t": 50, "l": 10, "b": 50},
                 plot_bgcolor="#f8f9fa",
-                xaxis=dict(categoryorder="array", categoryarray=band_order),
+                xaxis=dict(categoryorder="array", categoryarray=map_band_order),
             )
             _, _chart_mid, _ = st.columns([1, 2, 1])
             with _chart_mid:
@@ -977,7 +988,7 @@ with tab2:
                 st.markdown("**Florida — elevation map (DEM)**")
                 state_wkt = load_state_geometry_wkt()
                 if state_wkt:
-                    dem_img, dem_bounds, dem_hover = get_dem_overlay(state_wkt, unit_key)
+                    dem_img, dem_bounds, dem_hover = get_dem_overlay(state_wkt, "Feet" if map_use_feet else "Metric")
 
                     _basemap_map_state = {
                         "Streets (OpenStreetMap)": "open-street-map",
@@ -1039,7 +1050,7 @@ with tab2:
                     st.plotly_chart(fig_state, use_container_width=True, config={"scrollZoom": True})
 
                     if dem_img is not None and show_state_dem:
-                        st.markdown(_dem_legend_html(unit_key), unsafe_allow_html=True)
+                        st.markdown(_dem_legend_html("Feet" if map_use_feet else "Metric"), unsafe_allow_html=True)
                     elif dem_img is None:
                         st.warning("DEM file not found — outline only.")
 
@@ -1109,14 +1120,14 @@ with tab2:
                 (df_all["Scope"] == "Statewide") &
                 (df_all["Year"]  == map_year)
             ].copy()
-            elev_profile_state = to_display_bands(elev_profile_state, use_feet)
+            elev_profile_state = to_display_bands(elev_profile_state, map_use_feet)
             elev_profile_state["Elev_Band"] = pd.Categorical(
-                elev_profile_state["Elev_Band"], categories=band_order, ordered=True)
+                elev_profile_state["Elev_Band"], categories=map_band_order, ordered=True)
             elev_profile_state = elev_profile_state.sort_values("Elev_Band")
 
             fig_state_profile = go.Figure()
             for _, row in elev_profile_state.iterrows():
-                color = band_colors.get(row["Elev_Band"], "#888888")
+                color = map_band_colors.get(row["Elev_Band"], "#888888")
                 fig_state_profile.add_trace(go.Bar(
                     x=[row["Elev_Band"]],
                     y=[row["Population"]],
@@ -1144,13 +1155,13 @@ with tab2:
 
             fig_state_profile.update_layout(
                 title=f"Population by elevation — Florida ({map_year})",
-                xaxis_title=f"Elevation ({unit_label})",
+                xaxis_title=f"Elevation ({map_unit_label})",
                 yaxis_title="Population",
                 showlegend=False,
                 height=400,
                 margin={"r": 10, "t": 50, "l": 10, "b": 50},
                 plot_bgcolor="#f8f9fa",
-                xaxis=dict(categoryorder="array", categoryarray=band_order),
+                xaxis=dict(categoryorder="array", categoryarray=map_band_order),
             )
             _, _state_chart_mid, _ = st.columns([1, 2, 1])
             with _state_chart_mid:
