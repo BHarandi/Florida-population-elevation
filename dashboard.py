@@ -343,7 +343,24 @@ def get_pop_overlay(geom_wkt: str, year: int):
     buf = io.BytesIO()
     img.save(buf, format="PNG")
     data_uri = "data:image/png;base64," + base64.b64encode(buf.getvalue()).decode()
-    return data_uri, [west, south, east, north]
+
+    # Hover grid — ~60×60 sample points
+    HOVER_N = 60
+    sh = max(1, rows // HOVER_N)
+    sw = max(1, cols // HOVER_N)
+    pop_h = pop_ds[::sh, ::sw]
+    hr, hc = pop_h.shape
+    lon_arr = np.linspace(west, east,  hc)
+    lat_arr = np.linspace(north, south, hr)
+    lons_m, lats_m = np.meshgrid(lon_arr, lat_arr)
+    valid_h = ~np.isnan(pop_h) & (pop_h > 0)
+    hover = {
+        "lons": lons_m[valid_h].tolist(),
+        "lats": lats_m[valid_h].tolist(),
+        "text": [f"{v:.1f} people / 100 m pixel" for v in pop_h[valid_h].tolist()],
+    }
+
+    return data_uri, [west, south, east, north], hover
 
 
 def _pop_legend_html() -> str:
@@ -838,7 +855,8 @@ with tab2:
             # ── Right column: population distribution map ─────────────────────
             with zoom_col2:
                 st.markdown(f"**{map_county} — population ({map_year})**")
-                pop_img, pop_bounds = get_pop_overlay(geom.wkt, map_year)
+                st.markdown("<div style='height:60px'></div>", unsafe_allow_html=True)
+                pop_img, pop_bounds, pop_hover = get_pop_overlay(geom.wkt, map_year)
                 if pop_img is None:
                     st.info(f"WorldPop raster for {map_year} not found in data/worldpop/.")
                 else:
@@ -848,6 +866,15 @@ with tab2:
                         line=dict(color="black", width=2.5),
                         hoverinfo="skip", showlegend=False,
                     ))
+                    if pop_hover:
+                        fig_pop.add_trace(go.Scattermapbox(
+                            lon=pop_hover["lons"], lat=pop_hover["lats"],
+                            mode="markers",
+                            marker=dict(size=14, color="rgba(0,0,0,0)"),
+                            text=pop_hover["text"],
+                            hovertemplate="%{text}<extra></extra>",
+                            showlegend=False, name="",
+                        ))
                     pw84, ps84, pe84, pn84 = pop_bounds
                     fig_pop.update_layout(
                         mapbox=dict(
@@ -1008,7 +1035,8 @@ with tab2:
             # ── Right column: statewide population distribution map ───────────
             with state_col2:
                 st.markdown(f"**Florida — population ({map_year})**")
-                pop_img_s, pop_bounds_s = get_pop_overlay(state_wkt, map_year)
+                st.markdown("<div style='height:60px'></div>", unsafe_allow_html=True)
+                pop_img_s, pop_bounds_s, pop_hover_s = get_pop_overlay(state_wkt, map_year)
                 if pop_img_s is None:
                     st.info(f"WorldPop raster for {map_year} not found in data/worldpop/.")
                 else:
@@ -1018,6 +1046,15 @@ with tab2:
                             lon=lons, lat=lats, mode="lines",
                             line=dict(color="black", width=2),
                             hoverinfo="skip", showlegend=False,
+                        ))
+                    if pop_hover_s:
+                        fig_pop_s.add_trace(go.Scattermapbox(
+                            lon=pop_hover_s["lons"], lat=pop_hover_s["lats"],
+                            mode="markers",
+                            marker=dict(size=14, color="rgba(0,0,0,0)"),
+                            text=pop_hover_s["text"],
+                            hovertemplate="%{text}<extra></extra>",
+                            showlegend=False, name="",
                         ))
                     pw84s, ps84s, pe84s, pn84s = pop_bounds_s
                     fig_pop_s.update_layout(
