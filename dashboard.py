@@ -268,7 +268,7 @@ def get_flood_overlay(geom_wkt: str, sea_level_m: float):
 
     rgba = np.zeros((dem_ds.shape[0], dem_ds.shape[1], 4), dtype=np.uint8)
     rgba[valid & (dem_ds < 0)]                             = [ 30, 100, 210, 200]  # blue — already below sea level
-    rgba[valid & (dem_ds >= 0) & (dem_ds <= sea_level_m)] = [255,  80,   0, 210]  # vivid orange-red — flooded
+    rgba[valid & (dem_ds >= 0) & (dem_ds <= sea_level_m)] = [220,   0,   0, 220]  # vivid red — flooded
     rgba[poly_outside_ds]                                  = [  0,   0,   0,   0]  # transparent outside
 
     img = Image.fromarray(rgba, "RGBA")
@@ -1425,7 +1425,7 @@ with tab3:
 
             # Legend
             st.markdown(
-                '<span style="display:inline-block;width:14px;height:14px;background:#FF5000;'
+                '<span style="display:inline-block;width:14px;height:14px;background:#DC0000;'
                 'border-radius:2px;margin-right:4px;vertical-align:middle;"></span>'
                 f'<small>Flooded at +{slr_label} sea level rise</small>&nbsp;&nbsp;&nbsp;'
                 '<span style="display:inline-block;width:14px;height:14px;background:#2166ac;'
