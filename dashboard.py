@@ -356,31 +356,36 @@ def get_pop_overlay(geom_wkt: str, year: int):
     poly_outside_ds = poly_outside[::step_h, ::step_w]
 
     rows, cols = pop_ds.shape
-    # Threshold >= 0.5: excludes near-zero water/lake noise that ArcGIS treats as NoData
-    valid = ~np.isnan(pop_ds) & (pop_ds >= 0.5)
+    # Include ALL non-NaN pixels (0-value land pixels are valid — parks, industrial, etc.)
+    # Water/lakes are NaN (masked by pop < 0 and NoData conversion above)
+    valid = ~np.isnan(pop_ds)
 
     # ── 5-class quantile breaks (matching ArcGIS Classify → Quantile, 5 classes) ─
     valid_vals = pop_ds[valid]
     if valid_vals.size >= 5:
         q20, q40, q60, q80 = np.percentile(valid_vals, [20, 40, 60, 80])
     else:
-        q20, q40, q60, q80 = 1.0, 5.0, 10.0, 20.0
-    thresholds = [0.5, q20, q40, q60, q80, np.inf]
+        q20, q40, q60, q80 = 0.0, 3.5, 10.5, 17.5
 
-    # Yellow → orange → dark red (5 classes, same colour ramp as ArcGIS)
+    # Yellow → orange → bright red (matching ArcGIS "Yellow to Red" ramp, 5 classes)
     _Q5_COLORS = [
-        (255, 255,   0, 160),  # Q1 — bright yellow
-        (255, 165,   0, 185),  # Q2 — amber/orange
-        (255,  80,   0, 205),  # Q3 — red-orange
-        (210,  20,  20, 215),  # Q4 — red
-        (139,   0,   0, 225),  # Q5 — dark red
+        (255, 255,   0, 210),  # Q1 — bright yellow
+        (255, 168,   0, 215),  # Q2 — amber
+        (255,  98,   0, 220),  # Q3 — orange
+        (255,  30,   0, 225),  # Q4 — red-orange
+        (255,   0,   0, 230),  # Q5 — bright red
     ]
 
-    # ── Density image: 5-class quantile ──────────────────────────────────────
+    # ── Density image: 5-class quantile (same upper-value logic as ArcGIS) ───
     rgba_dens = np.zeros((rows, cols, 4), dtype=np.uint8)
-    for i, color in enumerate(_Q5_COLORS):
-        mask = valid & (pop_ds >= thresholds[i]) & (pop_ds < thresholds[i + 1])
-        rgba_dens[mask] = color
+    # Class 1: ≤ q20  (includes all 0-valued land pixels when q20 = 0)
+    rgba_dens[valid & (pop_ds <= q20)] = _Q5_COLORS[0]
+    # Classes 2–4: (prev_break, curr_break]
+    rgba_dens[valid & (pop_ds > q20) & (pop_ds <= q40)] = _Q5_COLORS[1]
+    rgba_dens[valid & (pop_ds > q40) & (pop_ds <= q60)] = _Q5_COLORS[2]
+    rgba_dens[valid & (pop_ds > q60) & (pop_ds <= q80)] = _Q5_COLORS[3]
+    # Class 5: > q80
+    rgba_dens[valid & (pop_ds > q80)] = _Q5_COLORS[4]
     rgba_dens[poly_outside_ds] = 0
 
     buf_dens = io.BytesIO()
@@ -418,11 +423,11 @@ def _pop_legend_html(breaks: list) -> str:
     """5-class quantile legend matching ArcGIS colour ramp."""
     b = breaks  # 4 break values in people/km²
     classes = [
-        ("#FFFF00", f"< {b[0]:,.0f}"),
-        ("#FFA500", f"{b[0]:,.0f} – {b[1]:,.0f}"),
-        ("#FF5000", f"{b[1]:,.0f} – {b[2]:,.0f}"),
-        ("#D21414", f"{b[2]:,.0f} – {b[3]:,.0f}"),
-        ("#8B0000", f"> {b[3]:,.0f}"),
+        ("#FFFF00", f"≤ {b[0]:,.0f}"),
+        ("#FFA800", f"{b[0]:,.0f} – {b[1]:,.0f}"),
+        ("#FF6200", f"{b[1]:,.0f} – {b[2]:,.0f}"),
+        ("#FF1E00", f"{b[2]:,.0f} – {b[3]:,.0f}"),
+        ("#FF0000", f"> {b[3]:,.0f}"),
     ]
     swatches = " ".join(
         f'<span style="display:inline-block;width:14px;height:14px;'
