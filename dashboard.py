@@ -392,9 +392,10 @@ def get_pop_overlay(geom_wkt: str, year: int):
     Image.fromarray(rgba_dens, "RGBA").save(buf_dens, format="PNG")
     data_uri_dens = "data:image/png;base64," + base64.b64encode(buf_dens.getvalue()).decode()
 
-    # breaks in people/km² for the legend (count × 100)
-    dens_breaks = [round(q20 * 100, 1), round(q40 * 100, 1),
-                   round(q60 * 100, 1), round(q80 * 100, 1)]
+    # [min, q20, q40, q60, q80, max] in people/km² for the legend
+    max_dens = round(float(np.nanmax(valid_vals)) * 100) if valid.any() else 100
+    dens_breaks = [0, round(q20 * 100, 1), round(q40 * 100, 1),
+                   round(q60 * 100, 1), round(q80 * 100, 1), max_dens]
 
     # ── Hover grid — ~60×60 sample points ────────────────────────────────────
     HOVER_N = 60
@@ -420,15 +421,27 @@ def get_pop_overlay(geom_wkt: str, year: int):
 
 
 def _pop_legend_html(breaks: list) -> str:
-    """Continuous gradient legend for population density."""
-    gradient = "linear-gradient(to right, #FFFF00, #FFA800, #FF6200, #FF1E00, #FF0000)"
+    """Continuous gradient legend — breaks = [min, q20, q40, q60, q80, max] in people/km²."""
+    min_d, max_d = breaks[0], breaks[-1]
+
+    def _fmt(v):
+        if v >= 10_000: return f"{v/1_000:.0f}k"
+        if v >= 1_000:  return f"{v/1_000:.1f}k"
+        return f"{v:.0f}"
+
+    gradient = "linear-gradient(to right, #FFFF00, #FF8800, #FF0000)"
     return (
-        '<div style="font-size:0.8rem;line-height:2;">'
-        'Population density (people/km²):&nbsp;'
-        f'<span style="display:inline-block;width:200px;height:12px;'
-        f'background:{gradient};border-radius:2px;vertical-align:middle;margin:0 6px;'
+        '<div style="font-size:0.8rem;line-height:1.6;">'
+        'Population density (people/km²):'
+        '<br>'
+        f'<span style="display:inline-block;width:220px;height:12px;'
+        f'background:{gradient};border-radius:2px;'
         f'border:1px solid rgba(0,0,0,0.1);"></span>'
-        '&nbsp;<small>Low &nbsp;→&nbsp; High</small>'
+        '<br>'
+        f'<div style="display:flex;justify-content:space-between;width:220px;font-size:0.75rem;">'
+        f'<span>{_fmt(min_d)}</span>'
+        f'<span>{_fmt(max_d)}</span>'
+        f'</div>'
         '</div>'
     )
 
