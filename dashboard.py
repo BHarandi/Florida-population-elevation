@@ -357,7 +357,7 @@ def get_pop_overlay(geom_wkt: str, year: int):
     hover = {
         "lons": lons_m[valid_h].tolist(),
         "lats": lats_m[valid_h].tolist(),
-        "text": [f"{v:.1f} people / 100 m pixel" for v in pop_h[valid_h].tolist()],
+        "text": [f"~{v * 100:.0f} people / km²" for v in pop_h[valid_h].tolist()],
     }
 
     return data_uri, [west, south, east, north], hover
@@ -365,12 +365,12 @@ def get_pop_overlay(geom_wkt: str, year: int):
 
 def _pop_legend_html() -> str:
     items = [
-        ("#FFFFC8", "< 1"),
-        ("#FFEDA0", "1–5"),
-        ("#FEB24C", "5–25"),
-        ("#FD8D3C", "25–100"),
-        ("#E31A1C", "100–500"),
-        ("#A50026", "500+"),
+        ("#FFFFC8", "< 100"),
+        ("#FFEDA0", "100–500"),
+        ("#FEB24C", "500–2,500"),
+        ("#FD8D3C", "2,500–10,000"),
+        ("#E31A1C", "10,000–50,000"),
+        ("#A50026", "50,000+"),
     ]
     swatches = " ".join(
         f'<span title="{lbl}" style="display:inline-block;width:14px;height:14px;'
@@ -378,7 +378,7 @@ def _pop_legend_html() -> str:
         f'<small style="margin-right:6px;">{lbl}</small>'
         for col, lbl in items
     )
-    return f'<div style="line-height:2;font-size:0.8rem;">People per 100 m pixel: {swatches}</div>'
+    return f'<div style="line-height:2;font-size:0.8rem;">Population density (people/km²): {swatches}</div>'
 
 
 def _dem_legend_html(unit_k: str) -> str:
