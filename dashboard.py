@@ -338,16 +338,18 @@ def get_pop_overlay(geom_wkt: str, year: int):
         out_shape=(h, w), transform=out_transform, invert=False,
     )
     pop = pop_ma.filled(np.nan).astype(np.float32)
-    # rio_mask only masks outside-geometry pixels; also convert WorldPop's own NoData to NaN
+    # Convert WorldPop's NoData sentinel to NaN (exact match)
     if pop_nodata is not None:
         pop[pop == np.float32(pop_nodata)] = np.nan
+    # Safety: any negative value is impossible for population counts
+    pop[pop < 0] = np.nan
 
     west  = out_transform.c
     north = out_transform.f
     east  = west  + w * out_transform.a
     south = north + h * out_transform.e
 
-    MAX_PX = 600
+    MAX_PX = 1200
     step_h = max(1, h // MAX_PX)
     step_w = max(1, w // MAX_PX)
     pop_ds          = pop[::step_h, ::step_w]
@@ -789,7 +791,7 @@ with tab2:
         # ══════════════════════════════════════════════════════════════════════
         if map_county != "All counties" and not df_map.empty:
             st.markdown("---")
-            zoom_col1, zoom_col2, zoom_col3 = st.columns(3)
+            zoom_col1, zoom_col3 = st.columns(2)
 
             # ── Get county geometry + centroid ────────────────────────────────
             county_geoid_sel = df_map[
@@ -907,65 +909,13 @@ with tab2:
                 elif dem_img is None:
                     st.warning("DEM file not found — outline only.")
 
-            # ── Centre column: population count map (blue) ───────────────────
+            # ── Right column: population density map (yellow→red) ────────────
             pop_img_count, pop_img_dens, pop_bounds, pop_hover = get_pop_overlay(geom.wkt, map_year)
             _pop_bmap_map = {
                 "Streets (OpenStreetMap)": "open-street-map",
                 "Light (Carto)":           "carto-positron",
                 "Dark (Carto)":            "carto-darkmatter",
             }
-            with zoom_col2:
-                st.markdown(f"**{map_county} — population count ({map_year})**")
-                p_sel, p_bmap, p_tog = st.columns([2, 1, 1])
-                pop_basemap_style  = p_sel.selectbox("Basemap", options=list(_pop_bmap_map.keys()), index=0, key="pop_basemap_county", label_visibility="collapsed")
-                show_pop_basemap   = p_bmap.toggle("Basemap",   value=True, key="pop_show_basemap_county")
-                show_pop           = p_tog.toggle("Count",      value=True, key="show_pop_county")
-                pop_mapbox_style   = _pop_bmap_map[pop_basemap_style] if show_pop_basemap else "white-bg"
-                if pop_img_count is None:
-                    st.info(f"WorldPop raster for {map_year} not found in data/worldpop/.")
-                else:
-                    fig_pop = go.Figure()
-                    fig_pop.add_trace(go.Scattermapbox(
-                        lon=boundary_lons, lat=boundary_lats, mode="lines",
-                        line=dict(color="black", width=2.5),
-                        hoverinfo="skip", showlegend=False,
-                    ))
-                    if pop_hover:
-                        fig_pop.add_trace(go.Scattermapbox(
-                            lon=pop_hover["lons"], lat=pop_hover["lats"],
-                            mode="markers",
-                            marker=dict(size=14, color="rgba(0,0,0,0)"),
-                            text=pop_hover["text"],
-                            hovertemplate="%{text}<extra></extra>",
-                            showlegend=False, name="",
-                        ))
-                    pw84, ps84, pe84, pn84 = pop_bounds
-                    _pop_layers = [{
-                        "sourcetype": "image",
-                        "source": pop_img_count,
-                        "coordinates": [
-                            [pw84, pn84], [pe84, pn84],
-                            [pe84, ps84], [pw84, ps84],
-                        ],
-                        "opacity": 0.85,
-                        "below": "traces",
-                    }] if show_pop else []
-                    fig_pop.update_layout(
-                        mapbox=dict(
-                            style=pop_mapbox_style,
-                            zoom=zoom_level,
-                            center={"lat": center_lat, "lon": center_lon},
-                            layers=_pop_layers,
-                        ),
-                        height=440,
-                        margin={"r": 0, "t": 10, "l": 0, "b": 0},
-                        uirevision=f"{map_county}_pop_count",
-                    )
-                    st.plotly_chart(fig_pop, use_container_width=True, config={"scrollZoom": True})
-                    if show_pop:
-                        st.markdown(_pop_count_legend_html(), unsafe_allow_html=True)
-
-            # ── Right column: population density map (yellow→red) ────────────
             with zoom_col3:
                 st.markdown(f"**{map_county} — population density ({map_year})**")
                 pd_sel, pd_bmap, pd_tog = st.columns([2, 1, 1])
@@ -1076,7 +1026,7 @@ with tab2:
         # ══════════════════════════════════════════════════════════════════════
         elif map_county == "All counties":
             st.markdown("---")
-            state_col1, state_col2, state_col3 = st.columns(3)
+            state_col1, state_col3 = st.columns(2)
 
             # ── Statewide DEM map ─────────────────────────────────────────────
             with state_col1:
@@ -1149,65 +1099,13 @@ with tab2:
                     elif dem_img is None:
                         st.warning("DEM file not found — outline only.")
 
-            # ── Centre/right columns: statewide population count + density ───
+            # ── Right column: statewide population density ────────────────────
             _pop_bmap_map_s = {
                 "Streets (OpenStreetMap)": "open-street-map",
                 "Light (Carto)":           "carto-positron",
                 "Dark (Carto)":            "carto-darkmatter",
             }
             pop_img_count_s, pop_img_dens_s, pop_bounds_s, pop_hover_s = get_pop_overlay(state_wkt, map_year)
-
-            with state_col2:
-                st.markdown(f"**Florida — population count ({map_year})**")
-                ps_sel, ps_bmap, ps_tog = st.columns([2, 1, 1])
-                pop_basemap_style_s = ps_sel.selectbox("Basemap", options=list(_pop_bmap_map_s.keys()), index=0, key="pop_basemap_state", label_visibility="collapsed")
-                show_pop_basemap_s  = ps_bmap.toggle("Basemap",  value=True, key="pop_show_basemap_state")
-                show_pop_s          = ps_tog.toggle("Count",     value=True, key="show_pop_state")
-                pop_mapbox_style_s  = _pop_bmap_map_s[pop_basemap_style_s] if show_pop_basemap_s else "white-bg"
-                if pop_img_count_s is None:
-                    st.info(f"WorldPop raster for {map_year} not found in data/worldpop/.")
-                else:
-                    fig_pop_s = go.Figure()
-                    for lons, lats in state_rings:
-                        fig_pop_s.add_trace(go.Scattermapbox(
-                            lon=lons, lat=lats, mode="lines",
-                            line=dict(color="black", width=2),
-                            hoverinfo="skip", showlegend=False,
-                        ))
-                    if pop_hover_s:
-                        fig_pop_s.add_trace(go.Scattermapbox(
-                            lon=pop_hover_s["lons"], lat=pop_hover_s["lats"],
-                            mode="markers",
-                            marker=dict(size=14, color="rgba(0,0,0,0)"),
-                            text=pop_hover_s["text"],
-                            hovertemplate="%{text}<extra></extra>",
-                            showlegend=False, name="",
-                        ))
-                    pw84s, ps84s, pe84s, pn84s = pop_bounds_s
-                    _pop_layers_s = [{
-                        "sourcetype": "image",
-                        "source": pop_img_count_s,
-                        "coordinates": [
-                            [pw84s, pn84s], [pe84s, pn84s],
-                            [pe84s, ps84s], [pw84s, ps84s],
-                        ],
-                        "opacity": 0.85,
-                        "below": "traces",
-                    }] if show_pop_s else []
-                    fig_pop_s.update_layout(
-                        mapbox=dict(
-                            style=pop_mapbox_style_s,
-                            zoom=5.5,
-                            center={"lat": 27.8, "lon": -81.5},
-                            layers=_pop_layers_s,
-                        ),
-                        height=480,
-                        margin={"r": 0, "t": 10, "l": 0, "b": 0},
-                        uirevision="state_pop_count",
-                    )
-                    st.plotly_chart(fig_pop_s, use_container_width=True, config={"scrollZoom": True})
-                    if show_pop_s:
-                        st.markdown(_pop_count_legend_html(), unsafe_allow_html=True)
 
             with state_col3:
                 st.markdown(f"**Florida — population density ({map_year})**")
