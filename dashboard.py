@@ -356,9 +356,9 @@ def get_pop_overlay(geom_wkt: str, year: int):
     poly_outside_ds = poly_outside[::step_h, ::step_w]
 
     rows, cols = pop_ds.shape
-    # Only color pixels with actual population (> 0); 0-value pixels = parks/industrial = no people
-    # Water/lakes are NaN (masked by pop < 0 and NoData conversion above)
-    valid = ~np.isnan(pop_ds) & (pop_ds > 0)
+    # Color pixels with value >= 0 (includes fractional values 0-1 from dasymetric modelling)
+    # Negative values are already NaN (converted above); NaN = water/outside boundary
+    valid = ~np.isnan(pop_ds) & (pop_ds >= 0)
 
     # ── 5-class quantile breaks (matching ArcGIS Classify → Quantile, 5 classes) ─
     valid_vals = pop_ds[valid]
