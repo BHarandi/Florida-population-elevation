@@ -32,7 +32,8 @@ _BASE      = os.path.dirname(os.path.abspath(__file__))
 DATA_PATH  = os.path.join(_BASE, "data", "population_by_elevation.parquet")
 COUNTY_SHP = os.path.join(_BASE, "data", "shp", "counties", "tl_2010_12_county10.shp")
 STATE_SHP  = os.path.join(_BASE, "data", "shp", "state",    "tl_2020_12_state.shp")
-DEM_PATH   = os.path.join(_BASE, "data", "dem_florida_100m.tif")
+DEM_PATH      = os.path.join(_BASE, "data", "dem_florida_100m.tif")
+WORLDPOP_DIR  = os.path.join(_BASE, "data", "worldpop")
 
 BAND_ORDER_M  = ["0-1 m",   "1-2 m",   "2-5 m",   "5-10 m",  "10-25 m", "25-50 m", "50+ m"]
 BAND_ORDER_FT = ["0-3 ft",  "3-7 ft",  "7-16 ft", "16-33 ft","33-82 ft","82-164 ft","164+ ft"]
@@ -275,6 +276,92 @@ def get_flood_overlay(geom_wkt: str, sea_level_m: float):
     img.save(buf, format="PNG")
     data_uri = "data:image/png;base64," + base64.b64encode(buf.getvalue()).decode()
     return data_uri, [west, south, east, north]
+
+
+@st.cache_data(show_spinner="Loading population map …")
+def get_pop_overlay(geom_wkt: str, year: int):
+    """Clip WorldPop raster to geometry and colorize by population density."""
+    pop_path = os.path.join(WORLDPOP_DIR, f"pop_{year}_florida.tif")
+    if not os.path.exists(pop_path):
+        return None, None
+
+    from shapely import wkt as shapely_wkt
+    geom_wgs84 = shapely_wkt.loads(geom_wkt)
+    gdf = gpd.GeoDataFrame(geometry=[geom_wgs84], crs="EPSG:4326").to_crs("EPSG:4269")
+    geom_4269 = gdf.geometry.iloc[0]
+
+    try:
+        with rasterio.open(pop_path) as src:
+            out_image, out_transform = rio_mask(
+                src, [geom_4269.__geo_interface__], crop=True, filled=False,
+            )
+    except Exception:
+        return None, None
+
+    from rasterio.features import geometry_mask
+    pop_ma = out_image[0]
+    h, w = pop_ma.shape
+    if h == 0 or w == 0:
+        return None, None
+
+    poly_outside = geometry_mask(
+        [geom_4269.__geo_interface__],
+        out_shape=(h, w), transform=out_transform, invert=False,
+    )
+    pop = pop_ma.filled(np.nan).astype(np.float32)
+
+    west  = out_transform.c
+    north = out_transform.f
+    east  = west  + w * out_transform.a
+    south = north + h * out_transform.e
+
+    MAX_PX = 600
+    step_h = max(1, h // MAX_PX)
+    step_w = max(1, w // MAX_PX)
+    pop_ds          = pop[::step_h, ::step_w]
+    poly_outside_ds = poly_outside[::step_h, ::step_w]
+
+    rows, cols = pop_ds.shape
+    rgba  = np.zeros((rows, cols, 4), dtype=np.uint8)
+    valid = ~np.isnan(pop_ds) & (pop_ds > 0)
+
+    # Sequential yellow → orange → red (people per 100 m pixel)
+    pop_bands = [
+        (  0,   1, (255, 255, 200, 120)),
+        (  1,   5, (255, 237, 160, 160)),
+        (  5,  25, (254, 178,  76, 190)),
+        ( 25, 100, (253, 141,  60, 210)),
+        (100, 500, (227,  26,  28, 220)),
+        (500,9999, (165,   0,  38, 230)),
+    ]
+    for low, high, color in pop_bands:
+        mask = valid & (pop_ds >= low) & (pop_ds < high)
+        rgba[mask] = color
+    rgba[poly_outside_ds] = [0, 0, 0, 0]
+
+    img = Image.fromarray(rgba, "RGBA")
+    buf = io.BytesIO()
+    img.save(buf, format="PNG")
+    data_uri = "data:image/png;base64," + base64.b64encode(buf.getvalue()).decode()
+    return data_uri, [west, south, east, north]
+
+
+def _pop_legend_html() -> str:
+    items = [
+        ("#FFFFC8", "< 1"),
+        ("#FFEDA0", "1–5"),
+        ("#FEB24C", "5–25"),
+        ("#FD8D3C", "25–100"),
+        ("#E31A1C", "100–500"),
+        ("#A50026", "500+"),
+    ]
+    swatches = " ".join(
+        f'<span title="{lbl}" style="display:inline-block;width:14px;height:14px;'
+        f'background:{col};border-radius:2px;margin-right:2px;vertical-align:middle;"></span>'
+        f'<small style="margin-right:6px;">{lbl}</small>'
+        for col, lbl in items
+    )
+    return f'<div style="line-height:2;font-size:0.8rem;">People per 100 m pixel: {swatches}</div>'
 
 
 def _dem_legend_html(unit_k: str) -> str:
@@ -748,10 +835,42 @@ with tab2:
                 elif dem_img is None:
                     st.warning("DEM file not found — outline only.")
 
-            # ── Right column: placeholder for population distribution map ──────
+            # ── Right column: population distribution map ─────────────────────
             with zoom_col2:
-                st.markdown(f"**{map_county} — population distribution map**")
-                st.info("Population distribution map — coming soon.")
+                st.markdown(f"**{map_county} — population ({map_year})**")
+                pop_img, pop_bounds = get_pop_overlay(geom.wkt, map_year)
+                if pop_img is None:
+                    st.info(f"WorldPop raster for {map_year} not found in data/worldpop/.")
+                else:
+                    fig_pop = go.Figure()
+                    fig_pop.add_trace(go.Scattermapbox(
+                        lon=boundary_lons, lat=boundary_lats, mode="lines",
+                        line=dict(color="black", width=2.5),
+                        hoverinfo="skip", showlegend=False,
+                    ))
+                    pw84, ps84, pe84, pn84 = pop_bounds
+                    fig_pop.update_layout(
+                        mapbox=dict(
+                            style="open-street-map",
+                            zoom=zoom_level,
+                            center={"lat": center_lat, "lon": center_lon},
+                            layers=[{
+                                "sourcetype": "image",
+                                "source": pop_img,
+                                "coordinates": [
+                                    [pw84, pn84], [pe84, pn84],
+                                    [pe84, ps84], [pw84, ps84],
+                                ],
+                                "opacity": 0.85,
+                                "below": "traces",
+                            }],
+                        ),
+                        height=440,
+                        margin={"r": 0, "t": 10, "l": 0, "b": 0},
+                        uirevision=f"{map_county}_pop",
+                    )
+                    st.plotly_chart(fig_pop, use_container_width=True)
+                    st.markdown(_pop_legend_html(), unsafe_allow_html=True)
 
             # ── Elevation profile chart (below, full width) ───────────────────
             st.markdown(f"**{map_county} — elevation profile ({map_year})**")
@@ -886,10 +1005,43 @@ with tab2:
                     elif dem_img is None:
                         st.warning("DEM file not found — outline only.")
 
-            # ── Right column: placeholder for population distribution map ──────
+            # ── Right column: statewide population distribution map ───────────
             with state_col2:
-                st.markdown("**Florida — population distribution map**")
-                st.info("Population distribution map — coming soon.")
+                st.markdown(f"**Florida — population ({map_year})**")
+                pop_img_s, pop_bounds_s = get_pop_overlay(state_wkt, map_year)
+                if pop_img_s is None:
+                    st.info(f"WorldPop raster for {map_year} not found in data/worldpop/.")
+                else:
+                    fig_pop_s = go.Figure()
+                    for lons, lats in state_rings:
+                        fig_pop_s.add_trace(go.Scattermapbox(
+                            lon=lons, lat=lats, mode="lines",
+                            line=dict(color="black", width=2),
+                            hoverinfo="skip", showlegend=False,
+                        ))
+                    pw84s, ps84s, pe84s, pn84s = pop_bounds_s
+                    fig_pop_s.update_layout(
+                        mapbox=dict(
+                            style="open-street-map",
+                            zoom=5.5,
+                            center={"lat": 27.8, "lon": -81.5},
+                            layers=[{
+                                "sourcetype": "image",
+                                "source": pop_img_s,
+                                "coordinates": [
+                                    [pw84s, pn84s], [pe84s, pn84s],
+                                    [pe84s, ps84s], [pw84s, ps84s],
+                                ],
+                                "opacity": 0.85,
+                                "below": "traces",
+                            }],
+                        ),
+                        height=480,
+                        margin={"r": 0, "t": 10, "l": 0, "b": 0},
+                        uirevision="state_pop",
+                    )
+                    st.plotly_chart(fig_pop_s, use_container_width=True)
+                    st.markdown(_pop_legend_html(), unsafe_allow_html=True)
 
             # ── Statewide elevation profile chart (below, full width) ─────────
             st.markdown(f"**Florida — elevation profile ({map_year})**")
