@@ -212,6 +212,75 @@ def load_infra_layer(path: str, simplify_tol: float = 0.0):
         return None
 
 
+@st.cache_data(show_spinner="Sampling DEM for elevation profile…")
+def _infra_elev_bands(path: str, simplify_tol: float, county_attr, county_bbox):
+    """
+    Load an infrastructure layer, filter by county, sample the DEM at each point
+    centroid, and return a DataFrame with columns [_band (metric), _elev_m].
+    """
+    if not path or not os.path.exists(path):
+        return None
+    try:
+        gdf = gpd.read_file(path)
+        if gdf.empty:
+            return None
+        gdf = gdf.set_crs(epsg=4326) if gdf.crs is None else gdf.to_crs(epsg=4326)
+        if simplify_tol > 0:
+            gdf = gdf.copy()
+            gdf["geometry"] = gdf.geometry.simplify(simplify_tol, preserve_topology=True)
+    except Exception:
+        return None
+
+    # County filter
+    if county_attr:
+        filtered = gdf.copy()
+        for col in ["COUNTY", "County", "COUNTY_NAM"]:
+            if col in filtered.columns:
+                filtered = filtered[filtered[col].str.strip().str.lower() == county_attr.lower()]
+                break
+        if filtered.empty and county_bbox:
+            filtered = gdf.cx[county_bbox[0]:county_bbox[2], county_bbox[1]:county_bbox[3]]
+        gdf = filtered
+    if gdf.empty:
+        return None
+
+    # Centroids
+    lons = gdf.geometry.apply(lambda g: g.centroid.x if g and not g.is_empty else None)
+    lats = gdf.geometry.apply(lambda g: g.centroid.y if g and not g.is_empty else None)
+    valid = lons.notna() & lats.notna()
+    lons, lats = lons[valid].tolist(), lats[valid].tolist()
+    if not lons:
+        return None
+
+    # Sample DEM
+    if not os.path.exists(DEM_PATH):
+        return None
+    try:
+        with rasterio.open(DEM_PATH) as src:
+            nodata = src.nodata
+            elevs  = [v[0] for v in src.sample(zip(lons, lats))]
+    except Exception:
+        return None
+
+    def _band(e):
+        if nodata is not None and abs(float(e) - float(nodata)) < 1:
+            return None
+        e = float(e)
+        if e < 0:   return None
+        if e < 1:   return "0-1 m"
+        if e < 2:   return "1-2 m"
+        if e < 5:   return "2-5 m"
+        if e < 10:  return "5-10 m"
+        if e < 25:  return "10-25 m"
+        if e < 50:  return "25-50 m"
+        return "50+ m"
+
+    df = pd.DataFrame({"_band": [_band(e) for e in elevs],
+                       "_elev_m": [float(e) for e in elevs]})
+    df = df.dropna(subset=["_band"])
+    return df if not df.empty else None
+
+
 def _infra_hover_texts(gdf: "gpd.GeoDataFrame") -> list:
     """Build hover label strings for an infrastructure GeoDataFrame."""
     cols = set(gdf.columns)
@@ -1784,6 +1853,116 @@ with tab4:
             )
         elif not active_infra_layers:
             st.info("Select one or more layers from the panel on the right to display them on the map.")
+
+    # ── Elevation profile (full-width, below the map columns) ──────────────────
+    _point_layers_active = [_ln for _ln in active_infra_layers
+                            if not INFRA_LAYERS[_ln].get("is_line")]
+    if _point_layers_active and os.path.exists(DEM_PATH):
+        st.markdown("---")
+        st.subheader("Facilities by Elevation Band")
+        st.caption(
+            "Elevation is sampled from the USGS 100 m DEM at each facility's location. "
+            "Bars show facility counts — the same elevation bands used for population."
+        )
+
+        _infra_use_feet = st.toggle("Display in feet", key="infra_use_feet", value=use_feet)
+        _i_band_order  = BAND_ORDER_FT if _infra_use_feet else BAND_ORDER_M
+        _i_band_colors = BAND_COLORS_FT if _infra_use_feet else BAND_COLORS_M
+
+        _bbox_tuple = tuple(_cb) if _cb else None
+        _elev_rows  = []
+
+        for _ln in _point_layers_active:
+            _lcfg = INFRA_LAYERS[_ln]
+            _edf  = _infra_elev_bands(_lcfg["path"], _lcfg.get("simplify", 0.0),
+                                       _cf, _bbox_tuple)
+            if _edf is None or _edf.empty:
+                continue
+            _edf = _edf.copy()
+            if _infra_use_feet:
+                _edf["_band"] = _edf["_band"].map(BAND_MAP_M_TO_FT)
+            for _bnd, _cnt in _edf["_band"].value_counts().items():
+                _elev_rows.append({
+                    "Layer":     f"{_lcfg['icon']} {_ln}",
+                    "Elev_Band": _bnd,
+                    "Count":     int(_cnt),
+                    "_color":    _lcfg["color"],
+                })
+
+        if _elev_rows:
+            _elev_df = pd.DataFrame(_elev_rows)
+            _elev_df["Elev_Band"] = pd.Categorical(
+                _elev_df["Elev_Band"], categories=_i_band_order, ordered=True
+            )
+            _elev_df = _elev_df.sort_values("Elev_Band")
+            _lyr_colors = {r["Layer"]: r["_color"] for r in _elev_rows}
+
+            # Combined grouped bar chart
+            fig_epro = px.bar(
+                _elev_df, x="Elev_Band", y="Count",
+                color="Layer",
+                color_discrete_map=_lyr_colors,
+                barmode="group",
+                title=f"Infrastructure facilities by elevation — {infra_area}",
+                labels={"Elev_Band": "Elevation band", "Count": "Facility count"},
+                category_orders={"Elev_Band": _i_band_order},
+            )
+            fig_epro.update_layout(
+                height=420,
+                margin={"t": 50, "b": 10},
+                legend=dict(orientation="h", yanchor="bottom", y=1.02,
+                            xanchor="right", x=1),
+            )
+            st.plotly_chart(fig_epro, use_container_width=True)
+
+            # Per-layer breakdown using elevation-band colors (like population tab)
+            _unique_layers = _elev_df["Layer"].unique().tolist()
+            if len(_unique_layers) == 1:
+                _single = _elev_df.copy()
+                _single["_band_color"] = _single["Elev_Band"].map(_i_band_colors)
+                fig_single = px.bar(
+                    _single, x="Elev_Band", y="Count",
+                    color="Elev_Band",
+                    color_discrete_map=_i_band_colors,
+                    title=f"{_unique_layers[0]} — elevation distribution ({infra_area})",
+                    labels={"Elev_Band": "Elevation band", "Count": "Facility count"},
+                    category_orders={"Elev_Band": _i_band_order},
+                )
+                fig_single.update_layout(height=350, showlegend=False,
+                                         margin={"t": 50, "b": 10})
+                st.plotly_chart(fig_single, use_container_width=True)
+            else:
+                # Small multiples: one chart per layer, 3 columns
+                _cols = st.columns(min(3, len(_unique_layers)))
+                for _ci, _lyr in enumerate(_unique_layers):
+                    _sub = _elev_df[_elev_df["Layer"] == _lyr].copy()
+                    _sub["_band_color"] = _sub["Elev_Band"].map(_i_band_colors)
+                    fig_sub = px.bar(
+                        _sub, x="Elev_Band", y="Count",
+                        color="Elev_Band",
+                        color_discrete_map=_i_band_colors,
+                        title=_lyr,
+                        labels={"Elev_Band": "Elevation band", "Count": "Facility count"},
+                        category_orders={"Elev_Band": _i_band_order},
+                    )
+                    fig_sub.update_layout(height=300, showlegend=False,
+                                          margin={"t": 40, "b": 10, "l": 10, "r": 10})
+                    with _cols[_ci % len(_cols)]:
+                        st.plotly_chart(fig_sub, use_container_width=True)
+
+            # Pivot table summary
+            _pivot = _elev_df.pivot_table(
+                index="Layer", columns="Elev_Band",
+                values="Count", aggfunc="sum", fill_value=0,
+            )
+            _pivot.columns.name = None
+            _pivot.index.name   = "Layer"
+            _pivot = _pivot.reindex(columns=[b for b in _i_band_order if b in _pivot.columns])
+            _pivot["Total"] = _pivot.sum(axis=1)
+            st.dataframe(_pivot, use_container_width=True)
+
+        elif not os.path.exists(DEM_PATH):
+            st.info("DEM file not found — elevation profile unavailable.")
 
 
 # ── Footer ────────────────────────────────────────────────────────────────────
