@@ -1902,25 +1902,24 @@ with tab4:
             )
 
     # ── Elevation profile — full-width below map columns ───────────────────────
-    _point_layers_active = [_ln for _ln in active_infra_layers
-                            if not INFRA_LAYERS[_ln].get("is_line")]
-    if _point_layers_active and os.path.exists(DEM_PATH):
+    # Include ALL active layers (line layers use feature centroids for elevation)
+    if active_infra_layers and os.path.exists(DEM_PATH):
         st.markdown("---")
-        st.subheader("Facilities by Elevation Band")
+        st.subheader("Features by Elevation Band")
 
         _unit_sel = st.radio(
             "Unit", ["Meters (m)", "Feet (ft)"],
             horizontal=True, key="infra_elev_unit",
         )
-        _use_ft      = _unit_sel == "Feet (ft)"
-        _e_band_ord  = BAND_ORDER_FT  if _use_ft else BAND_ORDER_M
-        _e_band_col  = BAND_COLORS_FT if _use_ft else BAND_COLORS_M
-        _e_axis_lbl  = "ft above MSL" if _use_ft else "m above MSL"
+        _use_ft     = _unit_sel == "Feet (ft)"
+        _e_band_ord = BAND_ORDER_FT  if _use_ft else BAND_ORDER_M
+        _e_band_col = BAND_COLORS_FT if _use_ft else BAND_COLORS_M
+        _e_axis_lbl = "ft above MSL" if _use_ft else "m above MSL"
 
         _bbox_tuple = tuple(_cb) if _cb else None
         _elev_rows  = []
 
-        for _ln in _point_layers_active:
+        for _ln in active_infra_layers:
             _lcfg = INFRA_LAYERS[_ln]
             _edf  = _infra_elev_bands(_lcfg["path"], _lcfg.get("simplify", 0.0),
                                       _cf, _bbox_tuple)
@@ -1940,41 +1939,36 @@ with tab4:
             _elev_df["Elev_Band"] = pd.Categorical(
                 _elev_df["Elev_Band"], categories=_e_band_ord, ordered=True)
             _elev_df = _elev_df.sort_values("Elev_Band")
-
-            # Combined overview chart
-            fig_ov = px.bar(
-                _elev_df, x="Elev_Band", y="Count",
-                color="Layer", color_discrete_map=_lyr_colors,
-                barmode="group",
-                labels={"Elev_Band": _e_axis_lbl, "Count": "Facility count"},
-                category_orders={"Elev_Band": _e_band_ord},
-            )
-            fig_ov.update_layout(
-                height=420, margin={"t": 20, "b": 10},
-                legend=dict(orientation="h", yanchor="bottom", y=1.02,
-                            xanchor="right", x=1),
-            )
-            st.plotly_chart(fig_ov, use_container_width=True)
-
-            # Per-layer breakdown
             _unique_layers = list(dict.fromkeys(r["Layer"] for r in _elev_rows))
-            if len(_unique_layers) > 1:
-                st.markdown("#### Per-layer breakdown")
-            for _lyr in _unique_layers:
-                _sub = _elev_df[_elev_df["Layer"] == _lyr].copy()
-                st.markdown(f"**{_lyr}**")
-                fig_sub = px.bar(
-                    _sub, x="Elev_Band", y="Count",
+
+            if len(_unique_layers) == 1:
+                # Single layer — color bars by elevation band
+                fig_elev = px.bar(
+                    _elev_df, x="Elev_Band", y="Count",
                     color="Elev_Band", color_discrete_map=_e_band_col,
-                    labels={"Elev_Band": _e_axis_lbl, "Count": "Facility count"},
+                    labels={"Elev_Band": _e_axis_lbl, "Count": "Feature count"},
                     category_orders={"Elev_Band": _e_band_ord},
                 )
-                fig_sub.update_layout(height=300, showlegend=False,
-                                      margin={"t": 10, "b": 10})
-                st.plotly_chart(fig_sub, use_container_width=True)
+                fig_elev.update_layout(height=400, showlegend=False,
+                                       margin={"t": 20, "b": 10})
+                st.plotly_chart(fig_elev, use_container_width=True)
+            else:
+                # Multiple layers — grouped bars, one color per layer
+                fig_elev = px.bar(
+                    _elev_df, x="Elev_Band", y="Count",
+                    color="Layer", color_discrete_map=_lyr_colors,
+                    barmode="group",
+                    labels={"Elev_Band": _e_axis_lbl, "Count": "Feature count"},
+                    category_orders={"Elev_Band": _e_band_ord},
+                )
+                fig_elev.update_layout(
+                    height=420, margin={"t": 20, "b": 10},
+                    legend=dict(orientation="h", yanchor="bottom", y=1.02,
+                                xanchor="right", x=1),
+                )
+                st.plotly_chart(fig_elev, use_container_width=True)
 
             # Summary table
-            st.markdown("#### Summary table")
             _pivot = _elev_df.pivot_table(
                 index="Layer", columns="Elev_Band",
                 values="Count", aggfunc="sum", fill_value=0,
@@ -1985,7 +1979,7 @@ with tab4:
             _pivot["Total"] = _pivot.sum(axis=1)
             st.dataframe(_pivot, use_container_width=True)
         else:
-            st.info("No elevation data — select point layers above.")
+            st.info("No elevation data available for the selected layers.")
 
 
 # ── Footer ────────────────────────────────────────────────────────────────────
