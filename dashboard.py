@@ -1905,14 +1905,18 @@ with tab4:
     if _point_layers_active and os.path.exists(DEM_PATH):
         st.markdown("---")
         st.subheader("Facilities by Elevation Band")
-        st.caption(
-            "Elevation sampled from the USGS 100 m DEM at each facility location. "
-            "Both metric and imperial ranges are shown simultaneously."
+
+        _unit_sel = st.radio(
+            "Unit", ["Meters (m)", "Feet (ft)"],
+            horizontal=True, key="infra_elev_unit",
         )
+        _use_ft      = _unit_sel == "Feet (ft)"
+        _e_band_ord  = BAND_ORDER_FT  if _use_ft else BAND_ORDER_M
+        _e_band_col  = BAND_COLORS_FT if _use_ft else BAND_COLORS_M
+        _e_axis_lbl  = "ft above MSL" if _use_ft else "m above MSL"
 
         _bbox_tuple = tuple(_cb) if _cb else None
-        _elev_rows_m  = []   # metric
-        _elev_rows_ft = []   # imperial
+        _elev_rows  = []
 
         for _ln in _point_layers_active:
             _lcfg = INFRA_LAYERS[_ln]
@@ -1920,110 +1924,66 @@ with tab4:
                                       _cf, _bbox_tuple)
             if _edf is None or _edf.empty:
                 continue
+            _edf = _edf.copy()
+            if _use_ft:
+                _edf["_band"] = _edf["_band"].map(BAND_MAP_M_TO_FT)
             _label = f"{_lcfg['icon']} {_ln}"
-            # metric counts
             for _bnd, _cnt in _edf["_band"].value_counts().items():
-                _elev_rows_m.append({"Layer": _label, "Elev_Band": _bnd,
-                                     "Count": int(_cnt), "_color": _lcfg["color"]})
-            # feet counts
-            _edf_ft = _edf.copy()
-            _edf_ft["_band"] = _edf_ft["_band"].map(BAND_MAP_M_TO_FT)
-            for _bnd, _cnt in _edf_ft["_band"].value_counts().items():
-                _elev_rows_ft.append({"Layer": _label, "Elev_Band": _bnd,
-                                      "Count": int(_cnt), "_color": _lcfg["color"]})
+                _elev_rows.append({"Layer": _label, "Elev_Band": _bnd,
+                                   "Count": int(_cnt), "_color": _lcfg["color"]})
 
-        if _elev_rows_m:
-            _lyr_colors = {r["Layer"]: r["_color"] for r in _elev_rows_m}
+        if _elev_rows:
+            _elev_df    = pd.DataFrame(_elev_rows)
+            _lyr_colors = {r["Layer"]: r["_color"] for r in _elev_rows}
+            _elev_df["Elev_Band"] = pd.Categorical(
+                _elev_df["Elev_Band"], categories=_e_band_ord, ordered=True)
+            _elev_df = _elev_df.sort_values("Elev_Band")
 
-            col_m, col_ft = st.columns(2)
+            # Combined overview chart
+            fig_ov = px.bar(
+                _elev_df, x="Elev_Band", y="Count",
+                color="Layer", color_discrete_map=_lyr_colors,
+                barmode="group",
+                labels={"Elev_Band": _e_axis_lbl, "Count": "Facility count"},
+                category_orders={"Elev_Band": _e_band_ord},
+            )
+            fig_ov.update_layout(
+                height=420, margin={"t": 20, "b": 10},
+                legend=dict(orientation="h", yanchor="bottom", y=1.02,
+                            xanchor="right", x=1),
+            )
+            st.plotly_chart(fig_ov, use_container_width=True)
 
-            # ── Meters chart ──────────────────────────────────────────────────
-            with col_m:
-                st.markdown("#### Meters (m above sea level)")
-                _df_m = pd.DataFrame(_elev_rows_m)
-                _df_m["Elev_Band"] = pd.Categorical(
-                    _df_m["Elev_Band"], categories=BAND_ORDER_M, ordered=True)
-                _df_m = _df_m.sort_values("Elev_Band")
-
-                fig_m = px.bar(
-                    _df_m, x="Elev_Band", y="Count",
-                    color="Layer", color_discrete_map=_lyr_colors,
-                    barmode="group",
-                    labels={"Elev_Band": "Elevation (m)", "Count": "Facility count"},
-                    category_orders={"Elev_Band": BAND_ORDER_M},
-                )
-                fig_m.update_layout(height=380, margin={"t": 10, "b": 10},
-                                    legend=dict(orientation="h", yanchor="bottom",
-                                                y=1.02, xanchor="right", x=1))
-                st.plotly_chart(fig_m, use_container_width=True)
-
-            # ── Feet chart ────────────────────────────────────────────────────
-            with col_ft:
-                st.markdown("#### Feet (ft above sea level)")
-                _df_ft = pd.DataFrame(_elev_rows_ft)
-                _df_ft["Elev_Band"] = pd.Categorical(
-                    _df_ft["Elev_Band"], categories=BAND_ORDER_FT, ordered=True)
-                _df_ft = _df_ft.sort_values("Elev_Band")
-
-                fig_ft = px.bar(
-                    _df_ft, x="Elev_Band", y="Count",
-                    color="Layer", color_discrete_map=_lyr_colors,
-                    barmode="group",
-                    labels={"Elev_Band": "Elevation (ft)", "Count": "Facility count"},
-                    category_orders={"Elev_Band": BAND_ORDER_FT},
-                )
-                fig_ft.update_layout(height=380, margin={"t": 10, "b": 10},
-                                     legend=dict(orientation="h", yanchor="bottom",
-                                                 y=1.02, xanchor="right", x=1))
-                st.plotly_chart(fig_ft, use_container_width=True)
-
-            # ── Per-layer small multiples (meters + feet side by side) ────────
-            _unique_layers = [r["Layer"] for r in _elev_rows_m]
-            _unique_layers = list(dict.fromkeys(_unique_layers))  # preserve order, dedupe
-
+            # Per-layer breakdown
+            _unique_layers = list(dict.fromkeys(r["Layer"] for r in _elev_rows))
             if len(_unique_layers) > 1:
                 st.markdown("#### Per-layer breakdown")
             for _lyr in _unique_layers:
+                _sub = _elev_df[_elev_df["Layer"] == _lyr].copy()
                 st.markdown(f"**{_lyr}**")
-                _sub_m  = pd.DataFrame([r for r in _elev_rows_m  if r["Layer"] == _lyr])
-                _sub_ft = pd.DataFrame([r for r in _elev_rows_ft if r["Layer"] == _lyr])
+                fig_sub = px.bar(
+                    _sub, x="Elev_Band", y="Count",
+                    color="Elev_Band", color_discrete_map=_e_band_col,
+                    labels={"Elev_Band": _e_axis_lbl, "Count": "Facility count"},
+                    category_orders={"Elev_Band": _e_band_ord},
+                )
+                fig_sub.update_layout(height=300, showlegend=False,
+                                      margin={"t": 10, "b": 10})
+                st.plotly_chart(fig_sub, use_container_width=True)
 
-                _sub_m["Elev_Band"]  = pd.Categorical(
-                    _sub_m["Elev_Band"],  categories=BAND_ORDER_M,  ordered=True)
-                _sub_ft["Elev_Band"] = pd.Categorical(
-                    _sub_ft["Elev_Band"], categories=BAND_ORDER_FT, ordered=True)
-                _sub_m  = _sub_m.sort_values("Elev_Band")
-                _sub_ft = _sub_ft.sort_values("Elev_Band")
-
-                _cm, _cft = st.columns(2)
-                with _cm:
-                    fig_sm = px.bar(_sub_m, x="Elev_Band", y="Count",
-                                    color="Elev_Band", color_discrete_map=BAND_COLORS_M,
-                                    labels={"Elev_Band": "m above MSL", "Count": "Count"},
-                                    category_orders={"Elev_Band": BAND_ORDER_M})
-                    fig_sm.update_layout(height=280, showlegend=False,
-                                         margin={"t": 10, "b": 10, "l": 10, "r": 10})
-                    st.plotly_chart(fig_sm, use_container_width=True)
-                with _cft:
-                    fig_sft = px.bar(_sub_ft, x="Elev_Band", y="Count",
-                                     color="Elev_Band", color_discrete_map=BAND_COLORS_FT,
-                                     labels={"Elev_Band": "ft above MSL", "Count": "Count"},
-                                     category_orders={"Elev_Band": BAND_ORDER_FT})
-                    fig_sft.update_layout(height=280, showlegend=False,
-                                          margin={"t": 10, "b": 10, "l": 10, "r": 10})
-                    st.plotly_chart(fig_sft, use_container_width=True)
-
-            # ── Summary table ─────────────────────────────────────────────────
-            st.markdown("#### Summary table (meters)")
-            _pivot = pd.DataFrame(_elev_rows_m).pivot_table(
+            # Summary table
+            st.markdown("#### Summary table")
+            _pivot = _elev_df.pivot_table(
                 index="Layer", columns="Elev_Band",
                 values="Count", aggfunc="sum", fill_value=0,
             )
             _pivot.columns.name = None
             _pivot.index.name   = "Layer"
-            _pivot = _pivot.reindex(columns=[b for b in BAND_ORDER_M if b in _pivot.columns])
+            _pivot = _pivot.reindex(columns=[b for b in _e_band_ord if b in _pivot.columns])
             _pivot["Total"] = _pivot.sum(axis=1)
             st.dataframe(_pivot, use_container_width=True)
+        else:
+            st.info("No elevation data — select point layers above.")
 
 
 # ── Footer ────────────────────────────────────────────────────────────────────
