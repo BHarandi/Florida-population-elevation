@@ -58,9 +58,10 @@ INFRA_LAYERS = {
         "color": "#1f77b4", "group": "Transportation", "icon": "✈",
     },
     "Bridges": {
-        "path":  os.path.join(_T, "Bridges", "Transportation_and_Evacuation_Routes_2_-3049094698008970566", "Bridges.shp"),
+        "path":  _ip("Bridges.geojson",
+                     os.path.join(_T, "Bridges", "Transportation_and_Evacuation_Routes_2_-3049094698008970566", "Bridges.shp")),
         "color": "#ff7f0e", "group": "Transportation", "icon": "🌉",
-        "is_line": True, "optional": True,
+        "is_line": True,
     },
     "Marinas": {
         "path":  _ip("Marinas.geojson",
@@ -73,9 +74,10 @@ INFRA_LAYERS = {
         "color": "#8c564b", "group": "Transportation", "icon": "🚢",
     },
     "Major Roads": {
-        "path":    os.path.join(_T, "Major Roadways - FDOT", "Transportation_and_Evacuation_Routes_2_5348635758994616946", "Major_Roadways_-_FDOT.shp"),
+        "path":    _ip("Major_Roads.geojson",
+                       os.path.join(_T, "Major Roadways - FDOT", "Transportation_and_Evacuation_Routes_2_5348635758994616946", "Major_Roadways_-_FDOT.shp")),
         "color":   "#e377c2", "group": "Transportation", "icon": "🛣",
-        "is_line": True, "simplify": 0.005, "optional": True,
+        "is_line": True, "simplify": 0.005,
     },
     "Hospitals": {
         "path":  _ip("Hospitals.geojson",
@@ -83,9 +85,9 @@ INFRA_LAYERS = {
         "color": "#d62728", "group": "Emergency Facilities", "icon": "🏥",
     },
     "Health Care": {
-        "path":  os.path.join(_C, "Health Care Facilities", "Critical_Community_and_Emergency_Facilities_2_3516896239554222129", "Health_Care_Facilities.shp"),
+        "path":  _ip("Health_Care.geojson",
+                     os.path.join(_C, "Health Care Facilities", "Critical_Community_and_Emergency_Facilities_2_3516896239554222129", "Health_Care_Facilities.shp")),
         "color": "#e7969c", "group": "Emergency Facilities", "icon": "⚕",
-        "optional": True,
     },
     "Schools": {
         "path":  _ip("Schools.geojson",
@@ -138,9 +140,9 @@ INFRA_LAYERS = {
         "color": "#ffd700", "group": "Critical Infrastructure", "icon": "⚡",
     },
     "Communications": {
-        "path":  os.path.join(_I, "Communications Facilities", "Critical_Infrastructure_2_-2530005311678924858", "Communications_Facilities.shp"),
+        "path":  _ip("Communications.geojson",
+                     os.path.join(_I, "Communications Facilities", "Critical_Infrastructure_2_-2530005311678924858", "Communications_Facilities.shp")),
         "color": "#7f7f7f", "group": "Critical Infrastructure", "icon": "📡",
-        "optional": True,
     },
     "Wastewater": {
         "path":  _ip("Wastewater.geojson",
