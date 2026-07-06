@@ -35,6 +35,85 @@ STATE_SHP  = os.path.join(_BASE, "data", "shp", "state",    "tl_2020_12_state.sh
 DEM_PATH      = os.path.join(_BASE, "data", "dem_florida_100m.tif")
 WORLDPOP_DIR  = os.path.join(_BASE, "data", "worldpop_wgs84")
 
+# ── Infrastructure data paths ──────────────────────────────────────────────────
+INFRA_ROOT = r"E:\2026\Datasets\infrastracture"
+_T = os.path.join(INFRA_ROOT, "Transportation and Evacuation Routes")
+_C = os.path.join(INFRA_ROOT, "Critical Community and Emergency Facilities")
+_I = os.path.join(INFRA_ROOT, "Critical Infrastructure")
+
+INFRA_LAYERS = {
+    "Airports": {
+        "path":  os.path.join(_T, "Airports", "Transportation_and_Evacuation_Routes_2_1194168659848709615", "Airports.shp"),
+        "color": "#1f77b4", "group": "Transportation", "icon": "✈",
+    },
+    "Bridges": {
+        "path":  os.path.join(_T, "Bridges", "Transportation_and_Evacuation_Routes_2_-3049094698008970566", "Bridges.shp"),
+        "color": "#ff7f0e", "group": "Transportation", "icon": "🌉",
+        "is_line": True,
+    },
+    "Marinas": {
+        "path":  os.path.join(_T, "Marinas", "Transportation_and_Evacuation_Routes_2_7699387341005298133", "Marinas.shp"),
+        "color": "#9467bd", "group": "Transportation", "icon": "⚓",
+    },
+    "Ports": {
+        "path":  os.path.join(_T, "Ports - PT", "Transportation_and_Evacuation_Routes_2_-5243994656539743605.geojson"),
+        "color": "#8c564b", "group": "Transportation", "icon": "🚢",
+    },
+    "Major Roads": {
+        "path":     os.path.join(_T, "Major Roadways - FDOT", "Transportation_and_Evacuation_Routes_2_5348635758994616946", "Major_Roadways_-_FDOT.shp"),
+        "color":    "#e377c2", "group": "Transportation", "icon": "🛣",
+        "is_line":  True, "simplify": 0.005,
+    },
+    "Hospitals": {
+        "path":  os.path.join(_C, "Hospitals", "Critical_Community_and_Emergency_Facilities_2_1792414469893767926", "Hospitals.shp"),
+        "color": "#d62728", "group": "Emergency Facilities", "icon": "🏥",
+    },
+    "Health Care": {
+        "path":  os.path.join(_C, "Health Care Facilities", "Critical_Community_and_Emergency_Facilities_2_3516896239554222129", "Health_Care_Facilities.shp"),
+        "color": "#e7969c", "group": "Emergency Facilities", "icon": "⚕",
+    },
+    "Schools": {
+        "path":  os.path.join(_C, "Schools", "Critical_Community_and_Emergency_Facilities_2_-5027662022404104295", "Schools.shp"),
+        "color": "#17becf", "group": "Emergency Facilities", "icon": "🏫",
+    },
+    "Fire Stations": {
+        "path":  os.path.join(_C, "Fire Stations", "Critical_Community_and_Emergency_Facilities_2_-1047806458352401644", "Fire_Stations.shp"),
+        "color": "#ff0000", "group": "Emergency Facilities", "icon": "🚒",
+    },
+    "EMS Facilities": {
+        "path":  os.path.join(_C, "Emergency Medical Service Facilities", "Critical_Community_and_Emergency_Facilities_2_4498557151273359554", "Emergency_Medical_Service_Facilities.shp"),
+        "color": "#2ca02c", "group": "Emergency Facilities", "icon": "🚑",
+    },
+    "Law Enforcement": {
+        "path":  os.path.join(_C, "Law Enforcement Facilities", "Critical_Community_and_Emergency_Facilities_2_4401688805576930661", "Law_Enforcement_Facilities.shp"),
+        "color": "#1a9850", "group": "Emergency Facilities", "icon": "🚔",
+    },
+    "Risk Shelters": {
+        "path":  os.path.join(_C, "Risk Shelter Inventory", "Critical_Community_and_Emergency_Facilities_2_-1943562129689500394", "Risk_Shelter_Inventory.shp"),
+        "color": "#aec7e8", "group": "Emergency Facilities", "icon": "🏠",
+    },
+    "Emergency Ops": {
+        "path":  os.path.join(_C, "Emergency Operation Centers", "Critical_Community_and_Emergency_Facilities_2_821146408615340654.geojson"),
+        "color": "#ffbb78", "group": "Emergency Facilities", "icon": "📟",
+    },
+    "Electric Power": {
+        "path":  os.path.join(_I, "Electric Production and Supply Facilities - PT", "Critical_Infrastructure_2_-7715989192034689186", "Electric_Production_and_Supply_Facilities_-_PT.shp"),
+        "color": "#ffd700", "group": "Critical Infrastructure", "icon": "⚡",
+    },
+    "Communications": {
+        "path":  os.path.join(_I, "Communications Facilities", "Critical_Infrastructure_2_-2530005311678924858", "Communications_Facilities.shp"),
+        "color": "#7f7f7f", "group": "Critical Infrastructure", "icon": "📡",
+    },
+    "Wastewater": {
+        "path":  os.path.join(_I, "Wastewater Treatment Facilities and Lift Stations", "Critical_Infrastructure_2_-6384592852190066085", "Wastewater_Treatment_Facilities_and_Lift_Stations.shp"),
+        "color": "#bcbd22", "group": "Critical Infrastructure", "icon": "💧",
+    },
+    "Stormwater": {
+        "path":  os.path.join(_I, "Stormwater Treatment Facilities and Pump Stations - PT", "Critical_Infrastructure_2_-1542211587000766307", "Stormwater_Treatment_Facilities_and_Pump_Stations_-_PT.shp"),
+        "color": "#6b6ecf", "group": "Critical Infrastructure", "icon": "🌊",
+    },
+}
+
 BAND_ORDER_M  = ["0-1 m",   "1-2 m",   "2-5 m",   "5-10 m",  "10-25 m", "25-50 m", "50+ m"]
 BAND_ORDER_FT = ["0-3 ft",  "3-7 ft",  "7-16 ft", "16-33 ft","33-82 ft","82-164 ft","164+ ft"]
 
@@ -94,6 +173,40 @@ def load_state_geometry_wkt():
     from shapely.ops import unary_union
     gdf = gpd.read_file(STATE_SHP).to_crs(epsg=4326)
     return unary_union(gdf.geometry).wkt
+
+
+@st.cache_data(show_spinner="Loading infrastructure layer…")
+def load_infra_layer(path: str, simplify_tol: float = 0.0):
+    """Load an infrastructure shapefile or GeoJSON into a WGS-84 GeoDataFrame."""
+    if not path or not os.path.exists(path):
+        return None
+    try:
+        gdf = gpd.read_file(path)
+        if gdf.empty:
+            return None
+        if gdf.crs is None:
+            gdf = gdf.set_crs(epsg=4326)
+        elif gdf.crs.to_epsg() != 4326:
+            gdf = gdf.to_crs(epsg=4326)
+        if simplify_tol > 0:
+            gdf = gdf.copy()
+            gdf["geometry"] = gdf.geometry.simplify(simplify_tol, preserve_topology=True)
+        return gdf
+    except Exception:
+        return None
+
+
+def _infra_hover_texts(gdf: "gpd.GeoDataFrame") -> list:
+    """Build hover label strings for an infrastructure GeoDataFrame."""
+    cols = set(gdf.columns)
+    name_col   = next((c for c in ["Name", "NAME", "FACILITYNAM", "LABEL", "SITENAME"] if c in cols), None)
+    county_col = next((c for c in ["COUNTY", "County", "COUNTY_NAM"] if c in cols), None)
+    names    = gdf[name_col].fillna("—").astype(str)   if name_col   else ["—"] * len(gdf)
+    counties = gdf[county_col].fillna("").astype(str)  if county_col else [""] * len(gdf)
+    return [
+        f"<b>{n.strip() or '—'}</b>" + (f"<br>{c.strip()} County" if c.strip() else "")
+        for n, c in zip(names, counties)
+    ]
 
 
 @st.cache_data(show_spinner="Reading DEM …")
@@ -562,7 +675,7 @@ df_area = get_area_df(selected_area, unit_key,
 
 
 # ── Tabs ──────────────────────────────────────────────────────────────────────
-tab1, tab2, tab3 = st.tabs(["Distribution", "Map", "Sea Level Rise"])
+tab1, tab2, tab3, tab4 = st.tabs(["Distribution", "Map", "Sea Level Rise", "Infrastructure"])
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -1483,6 +1596,179 @@ with tab3:
         .reset_index(drop=True),
         use_container_width=True, hide_index=True,
     )
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# TAB 4 — Infrastructure
+# ─────────────────────────────────────────────────────────────────────────────
+with tab4:
+    st.subheader("Florida Infrastructure Layers")
+
+    infra_map_col, infra_ctrl_col = st.columns([3, 1])
+
+    with infra_ctrl_col:
+        infra_area = st.selectbox("County / Statewide", county_options, key="infra_area")
+        _infra_bmap_opts = {
+            "Light (Carto)":           "carto-positron",
+            "Streets (OpenStreetMap)": "open-street-map",
+            "Dark (Carto)":            "carto-darkmatter",
+        }
+        infra_bmap_style = st.selectbox("Basemap", list(_infra_bmap_opts.keys()), key="infra_bmap")
+
+        st.markdown("---")
+
+        # Layer checkboxes grouped by category
+        _layer_groups = {}
+        for _ln, _lcfg in INFRA_LAYERS.items():
+            _layer_groups.setdefault(_lcfg["group"], []).append(_ln)
+
+        active_infra_layers = []
+        for _grp, _lnames in _layer_groups.items():
+            _expanded = _grp in ("Transportation", "Emergency Facilities")
+            with st.expander(f"**{_grp}**", expanded=_expanded):
+                for _ln in _lnames:
+                    _lcfg = INFRA_LAYERS[_ln]
+                    _note = " *(slow first load)*" if _ln == "Major Roads" else ""
+                    _default = _ln in ("Airports", "Hospitals")
+                    _checked = st.checkbox(
+                        f"{_lcfg['icon']} {_ln}{_note}",
+                        key=f"infra_{_ln.replace(' ', '_')}",
+                        value=_default,
+                    )
+                    if _checked:
+                        active_infra_layers.append(_ln)
+
+    with infra_map_col:
+        # Map viewport
+        if infra_area == "Florida (Statewide)":
+            _ic = {"lat": 27.8, "lon": -81.5}
+            _iz = 5.5
+            _cf = None
+            _cb = None
+        else:
+            _igid = df_all[
+                (df_all["Scope"] == "County") & (df_all["County_Name"] == infra_area)
+            ]["County_GEOID"]
+            _igid = _igid.iloc[0] if not _igid.empty else None
+            _ifeats = [f for f in fl_geojson["features"]
+                       if f["properties"]["GEOID10"] == _igid] if _igid else []
+            if _ifeats:
+                _igeom = shape(_ifeats[0]["geometry"])
+                _ic = {"lat": _igeom.centroid.y, "lon": _igeom.centroid.x}
+                _ibx, _iby, _ibxx, _ibyy = _igeom.bounds
+                _iz = max(6, min(10, round(8.0 - max(_ibxx - _ibx, _ibyy - _iby) * 6)))
+                _cf = infra_area
+                _cb = (_ibx, _iby, _ibxx, _ibyy)
+            else:
+                _ic = {"lat": 27.8, "lon": -81.5}
+                _iz = 5.5
+                _cf = infra_area
+                _cb = None
+
+        fig_infra = go.Figure()
+
+        # State boundary outline
+        for _bl, _bla in state_rings:
+            fig_infra.add_trace(go.Scattermapbox(
+                lon=_bl, lat=_bla, mode="lines",
+                line=dict(color="black", width=1),
+                hoverinfo="skip", showlegend=False,
+            ))
+
+        _summary_rows = []
+
+        for _ln in active_infra_layers:
+            _lcfg  = INFRA_LAYERS[_ln]
+            _simp  = _lcfg.get("simplify", 0.0)
+            _gdf   = load_infra_layer(_lcfg["path"], simplify_tol=_simp)
+
+            if _gdf is None or _gdf.empty:
+                continue
+
+            # County filter — try attribute column first, then bbox
+            _fgdf = _gdf
+            if _cf:
+                for _col in ["COUNTY", "County", "COUNTY_NAM"]:
+                    if _col in _fgdf.columns:
+                        _fgdf = _fgdf[_fgdf[_col].str.strip().str.lower() == _cf.lower()]
+                        break
+                if _fgdf.empty and _cb:
+                    _fgdf = _gdf.cx[_cb[0]:_cb[2], _cb[1]:_cb[3]]
+
+            if _fgdf.empty:
+                _summary_rows.append({"Layer": f"{_lcfg['icon']} {_ln}", "Features": 0})
+                continue
+
+            if _lcfg.get("is_line"):
+                # Line geometry → render as Scattermapbox lines
+                _all_lons, _all_lats = [], []
+                for _geom in _fgdf.geometry:
+                    if _geom is None or _geom.is_empty:
+                        continue
+                    _segs = _geom.geoms if _geom.geom_type.startswith("Multi") else [_geom]
+                    for _seg in _segs:
+                        try:
+                            _coords = list(_seg.coords)
+                            _all_lons.extend([c[0] for c in _coords] + [None])
+                            _all_lats.extend([c[1] for c in _coords] + [None])
+                        except Exception:
+                            pass
+                if _all_lons:
+                    fig_infra.add_trace(go.Scattermapbox(
+                        lon=_all_lons, lat=_all_lats, mode="lines",
+                        line=dict(color=_lcfg["color"], width=1.5),
+                        name=f"{_lcfg['icon']} {_ln}",
+                        showlegend=True, hoverinfo="skip",
+                    ))
+                _summary_rows.append({"Layer": f"{_lcfg['icon']} {_ln}", "Features": len(_fgdf)})
+
+            else:
+                # Point / polygon → use centroid for marker position
+                _pts = _fgdf.copy()
+                _pts["_lon"] = _pts.geometry.apply(lambda g: g.centroid.x if g and not g.is_empty else None)
+                _pts["_lat"] = _pts.geometry.apply(lambda g: g.centroid.y if g and not g.is_empty else None)
+                _pts = _pts.dropna(subset=["_lon", "_lat"])
+                if _pts.empty:
+                    continue
+
+                _htexts = _infra_hover_texts(_pts)
+                fig_infra.add_trace(go.Scattermapbox(
+                    lon=_pts["_lon"].tolist(),
+                    lat=_pts["_lat"].tolist(),
+                    mode="markers",
+                    marker=dict(size=8, color=_lcfg["color"], opacity=0.85),
+                    text=_htexts,
+                    hovertemplate="%{text}<extra></extra>",
+                    name=f"{_lcfg['icon']} {_ln}",
+                    showlegend=True,
+                ))
+                _summary_rows.append({"Layer": f"{_lcfg['icon']} {_ln}", "Features": len(_pts)})
+
+        fig_infra.update_layout(
+            mapbox=dict(
+                style=_infra_bmap_opts[infra_bmap_style],
+                zoom=_iz,
+                center=_ic,
+            ),
+            height=680,
+            margin={"r": 0, "t": 10, "l": 0, "b": 0},
+            legend=dict(
+                yanchor="top", y=0.98, xanchor="left", x=0.01,
+                bgcolor="rgba(255,255,255,0.82)",
+                font=dict(size=12),
+            ),
+            uirevision=f"infra_{infra_area}",
+        )
+        st.plotly_chart(fig_infra, use_container_width=True, config={"scrollZoom": True})
+
+        if _summary_rows:
+            st.markdown(f"**Visible layers — feature counts ({infra_area})**")
+            st.dataframe(
+                pd.DataFrame(_summary_rows),
+                use_container_width=False, hide_index=True,
+            )
+        elif not active_infra_layers:
+            st.info("Select one or more layers from the panel on the right to display them on the map.")
 
 
 # ── Footer ────────────────────────────────────────────────────────────────────
