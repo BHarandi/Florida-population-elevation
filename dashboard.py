@@ -36,35 +36,14 @@ DEM_PATH      = os.path.join(_BASE, "data", "dem_florida_100m.tif")
 WORLDPOP_DIR  = os.path.join(_BASE, "data", "worldpop_wgs84")
 
 # ── Infrastructure data paths ──────────────────────────────────────────────────
-<<<<<<< HEAD
-# GeoJSON files (WGS-84, portable) live in data/infrastructure/.
-# Large files that didn't fit GitHub fall back to the E: drive dataset.
-_INFRA_LOCAL = os.path.join(_BASE, "data", "infrastructure")
-INFRA_ROOT   = r"E:\2026\Datasets\infrastracture"
-=======
 INFRA_ROOT = r"E:\2026\Datasets\infrastracture"
->>>>>>> cb70a4466f90d9587bdc639743affa66131b4c96
 _T = os.path.join(INFRA_ROOT, "Transportation and Evacuation Routes")
 _C = os.path.join(INFRA_ROOT, "Critical Community and Emergency Facilities")
 _I = os.path.join(INFRA_ROOT, "Critical Infrastructure")
 
-<<<<<<< HEAD
-
-def _ip(local_name, fallback):
-    """Return local GeoJSON path when present, else E: drive fallback."""
-    p = os.path.join(_INFRA_LOCAL, local_name)
-    return p if os.path.exists(p) else fallback
-
-
-INFRA_LAYERS = {
-    "Airports": {
-        "path":  _ip("Airports.geojson",
-                     os.path.join(_T, "Airports", "Transportation_and_Evacuation_Routes_2_1194168659848709615", "Airports.shp")),
-=======
 INFRA_LAYERS = {
     "Airports": {
         "path":  os.path.join(_T, "Airports", "Transportation_and_Evacuation_Routes_2_1194168659848709615", "Airports.shp"),
->>>>>>> cb70a4466f90d9587bdc639743affa66131b4c96
         "color": "#1f77b4", "group": "Transportation", "icon": "✈",
     },
     "Bridges": {
@@ -73,21 +52,11 @@ INFRA_LAYERS = {
         "is_line": True,
     },
     "Marinas": {
-<<<<<<< HEAD
-        "path":  _ip("Marinas.geojson",
-                     os.path.join(_T, "Marinas", "Transportation_and_Evacuation_Routes_2_7699387341005298133", "Marinas.shp")),
-        "color": "#9467bd", "group": "Transportation", "icon": "⚓",
-    },
-    "Ports": {
-        "path":  _ip("Ports.geojson",
-                     os.path.join(_T, "Ports - PT", "Transportation_and_Evacuation_Routes_2_-5243994656539743605.geojson")),
-=======
         "path":  os.path.join(_T, "Marinas", "Transportation_and_Evacuation_Routes_2_7699387341005298133", "Marinas.shp"),
         "color": "#9467bd", "group": "Transportation", "icon": "⚓",
     },
     "Ports": {
         "path":  os.path.join(_T, "Ports - PT", "Transportation_and_Evacuation_Routes_2_-5243994656539743605.geojson"),
->>>>>>> cb70a4466f90d9587bdc639743affa66131b4c96
         "color": "#8c564b", "group": "Transportation", "icon": "🚢",
     },
     "Major Roads": {
@@ -96,12 +65,7 @@ INFRA_LAYERS = {
         "is_line":  True, "simplify": 0.005,
     },
     "Hospitals": {
-<<<<<<< HEAD
-        "path":  _ip("Hospitals.geojson",
-                     os.path.join(_C, "Hospitals", "Critical_Community_and_Emergency_Facilities_2_1792414469893767926", "Hospitals.shp")),
-=======
         "path":  os.path.join(_C, "Hospitals", "Critical_Community_and_Emergency_Facilities_2_1792414469893767926", "Hospitals.shp"),
->>>>>>> cb70a4466f90d9587bdc639743affa66131b4c96
         "color": "#d62728", "group": "Emergency Facilities", "icon": "🏥",
     },
     "Health Care": {
@@ -109,55 +73,6 @@ INFRA_LAYERS = {
         "color": "#e7969c", "group": "Emergency Facilities", "icon": "⚕",
     },
     "Schools": {
-<<<<<<< HEAD
-        "path":  _ip("Schools.geojson",
-                     os.path.join(_C, "Schools", "Critical_Community_and_Emergency_Facilities_2_-5027662022404104295", "Schools.shp")),
-        "color": "#17becf", "group": "Emergency Facilities", "icon": "🏫",
-    },
-    "Fire Stations": {
-        "path":  _ip("Fire_Stations.geojson",
-                     os.path.join(_C, "Fire Stations", "Critical_Community_and_Emergency_Facilities_2_-1047806458352401644", "Fire_Stations.shp")),
-        "color": "#ff0000", "group": "Emergency Facilities", "icon": "🚒",
-    },
-    "EMS Facilities": {
-        "path":  _ip("EMS.geojson",
-                     os.path.join(_C, "Emergency Medical Service Facilities", "Critical_Community_and_Emergency_Facilities_2_4498557151273359554", "Emergency_Medical_Service_Facilities.shp")),
-        "color": "#2ca02c", "group": "Emergency Facilities", "icon": "🚑",
-    },
-    "Law Enforcement": {
-        "path":  _ip("Law_Enforcement.geojson",
-                     os.path.join(_C, "Law Enforcement Facilities", "Critical_Community_and_Emergency_Facilities_2_4401688805576930661", "Law_Enforcement_Facilities.shp")),
-        "color": "#1a9850", "group": "Emergency Facilities", "icon": "🚔",
-    },
-    "Risk Shelters": {
-        "path":  _ip("Risk_Shelters.geojson",
-                     os.path.join(_C, "Risk Shelter Inventory", "Critical_Community_and_Emergency_Facilities_2_-1943562129689500394", "Risk_Shelter_Inventory.shp")),
-        "color": "#aec7e8", "group": "Emergency Facilities", "icon": "🏠",
-    },
-    "Emergency Ops": {
-        "path":  _ip("Emergency_Ops.geojson",
-                     os.path.join(_C, "Emergency Operation Centers", "Critical_Community_and_Emergency_Facilities_2_821146408615340654.geojson")),
-        "color": "#ffbb78", "group": "Emergency Facilities", "icon": "📟",
-    },
-    "Logistical Staging": {
-        "path":  _ip("Logistical_Staging.geojson",
-                     os.path.join(_C, "Logistical Staging Areas", "Critical_Community_and_Emergency_Facilities_2_-5578331856732885395.geojson")),
-        "color": "#9edae5", "group": "Emergency Facilities", "icon": "🏗",
-    },
-    "Correctional": {
-        "path":  _ip("Correctional.geojson",
-                     os.path.join(_C, "Correctional Facilities", "Critical_Community_and_Emergency_Facilities_2_6939651817516893249.geojson")),
-        "color": "#c7c7c7", "group": "Emergency Facilities", "icon": "🔒",
-    },
-    "Disaster Recovery": {
-        "path":  _ip("Disaster_Recovery.geojson",
-                     os.path.join(_C, "Disaster Recovery Centers", "Critical_Community_and_Emergency_Facilities_2_8157404733337029249.geojson")),
-        "color": "#f7b6d2", "group": "Emergency Facilities", "icon": "🔧",
-    },
-    "Electric Power": {
-        "path":  _ip("Electric_Power.geojson",
-                     os.path.join(_I, "Electric Production and Supply Facilities - PT", "Critical_Infrastructure_2_-7715989192034689186", "Electric_Production_and_Supply_Facilities_-_PT.shp")),
-=======
         "path":  os.path.join(_C, "Schools", "Critical_Community_and_Emergency_Facilities_2_-5027662022404104295", "Schools.shp"),
         "color": "#17becf", "group": "Emergency Facilities", "icon": "🏫",
     },
@@ -181,9 +96,20 @@ INFRA_LAYERS = {
         "path":  os.path.join(_C, "Emergency Operation Centers", "Critical_Community_and_Emergency_Facilities_2_821146408615340654.geojson"),
         "color": "#ffbb78", "group": "Emergency Facilities", "icon": "📟",
     },
+    "Logistical Staging": {
+        "path":  os.path.join(_C, "Logistical Staging Areas", "Critical_Community_and_Emergency_Facilities_2_-5578331856732885395.geojson"),
+        "color": "#9edae5", "group": "Emergency Facilities", "icon": "🏗",
+    },
+    "Correctional": {
+        "path":  os.path.join(_C, "Correctional Facilities", "Critical_Community_and_Emergency_Facilities_2_6939651817516893249.geojson"),
+        "color": "#c7c7c7", "group": "Emergency Facilities", "icon": "🔒",
+    },
+    "Disaster Recovery": {
+        "path":  os.path.join(_C, "Disaster Recovery Centers", "Critical_Community_and_Emergency_Facilities_2_8157404733337029249.geojson"),
+        "color": "#f7b6d2", "group": "Emergency Facilities", "icon": "🔧",
+    },
     "Electric Power": {
         "path":  os.path.join(_I, "Electric Production and Supply Facilities - PT", "Critical_Infrastructure_2_-7715989192034689186", "Electric_Production_and_Supply_Facilities_-_PT.shp"),
->>>>>>> cb70a4466f90d9587bdc639743affa66131b4c96
         "color": "#ffd700", "group": "Critical Infrastructure", "icon": "⚡",
     },
     "Communications": {
@@ -191,22 +117,6 @@ INFRA_LAYERS = {
         "color": "#7f7f7f", "group": "Critical Infrastructure", "icon": "📡",
     },
     "Wastewater": {
-<<<<<<< HEAD
-        "path":  _ip("Wastewater.geojson",
-                     os.path.join(_I, "Wastewater Treatment Facilities and Lift Stations", "Critical_Infrastructure_2_-6384592852190066085", "Wastewater_Treatment_Facilities_and_Lift_Stations.shp")),
-        "color": "#bcbd22", "group": "Critical Infrastructure", "icon": "💧",
-    },
-    "Stormwater": {
-        "path":  _ip("Stormwater.geojson",
-                     os.path.join(_I, "Stormwater Treatment Facilities and Pump Stations - PT", "Critical_Infrastructure_2_-1542211587000766307", "Stormwater_Treatment_Facilities_and_Pump_Stations_-_PT.shp")),
-        "color": "#6b6ecf", "group": "Critical Infrastructure", "icon": "🌊",
-    },
-    "Solid Waste": {
-        "path":  _ip("Solid_Waste_TSD.geojson",
-                     os.path.join(_I, "Solid and Hazardous Waste Facilities - TSD", "Critical_Infrastructure_2_9105319738231184869.geojson")),
-        "color": "#8c6d31", "group": "Critical Infrastructure", "icon": "☣",
-    },
-=======
         "path":  os.path.join(_I, "Wastewater Treatment Facilities and Lift Stations", "Critical_Infrastructure_2_-6384592852190066085", "Wastewater_Treatment_Facilities_and_Lift_Stations.shp"),
         "color": "#bcbd22", "group": "Critical Infrastructure", "icon": "💧",
     },
@@ -214,7 +124,10 @@ INFRA_LAYERS = {
         "path":  os.path.join(_I, "Stormwater Treatment Facilities and Pump Stations - PT", "Critical_Infrastructure_2_-1542211587000766307", "Stormwater_Treatment_Facilities_and_Pump_Stations_-_PT.shp"),
         "color": "#6b6ecf", "group": "Critical Infrastructure", "icon": "🌊",
     },
->>>>>>> cb70a4466f90d9587bdc639743affa66131b4c96
+    "Solid Waste": {
+        "path":  os.path.join(_I, "Solid and Hazardous Waste Facilities - TSD", "Critical_Infrastructure_2_9105319738231184869.geojson"),
+        "color": "#8c6d31", "group": "Critical Infrastructure", "icon": "☣",
+    },
 }
 
 BAND_ORDER_M  = ["0-1 m",   "1-2 m",   "2-5 m",   "5-10 m",  "10-25 m", "25-50 m", "50+ m"]
@@ -289,11 +202,7 @@ def load_infra_layer(path: str, simplify_tol: float = 0.0):
             return None
         if gdf.crs is None:
             gdf = gdf.set_crs(epsg=4326)
-<<<<<<< HEAD
         else:
-=======
-        elif gdf.crs.to_epsg() != 4326:
->>>>>>> cb70a4466f90d9587bdc639743affa66131b4c96
             gdf = gdf.to_crs(epsg=4326)
         if simplify_tol > 0:
             gdf = gdf.copy()
@@ -1804,10 +1713,9 @@ with tab4:
             with st.expander(f"**{_grp}**", expanded=_expanded):
                 for _ln in _lnames:
                     _lcfg = INFRA_LAYERS[_ln]
-                    _note = " *(slow first load)*" if _ln == "Major Roads" else ""
                     _default = _ln in ("Airports", "Hospitals")
                     _checked = st.checkbox(
-                        f"{_lcfg['icon']} {_ln}{_note}",
+                        f"{_lcfg['icon']} {_ln}",
                         key=f"infra_{_ln.replace(' ', '_')}",
                         value=_default,
                     )
@@ -1945,114 +1853,6 @@ with tab4:
             )
         elif not active_infra_layers:
             st.info("Select one or more layers from the panel on the right to display them on the map.")
-
-    # ── Elevation profile (full-width, below the map columns) ──────────────────
-    _point_layers_active = [_ln for _ln in active_infra_layers
-                            if not INFRA_LAYERS[_ln].get("is_line")]
-    if _point_layers_active and os.path.exists(DEM_PATH):
-        st.markdown("---")
-        st.subheader("Facilities by Elevation Band")
-        st.caption(
-            "Elevation is sampled from the USGS 100 m DEM at each facility's location. "
-            "Bars show facility counts — the same elevation bands used for population."
-        )
-
-        _infra_use_feet = st.toggle("Display in feet", key="infra_use_feet", value=use_feet)
-        _i_band_order  = BAND_ORDER_FT if _infra_use_feet else BAND_ORDER_M
-        _i_band_colors = BAND_COLORS_FT if _infra_use_feet else BAND_COLORS_M
-
-        _bbox_tuple = tuple(_cb) if _cb else None
-        _elev_rows  = []
-
-        for _ln in _point_layers_active:
-            _lcfg = INFRA_LAYERS[_ln]
-            _edf  = _infra_elev_bands(_lcfg["path"], _lcfg.get("simplify", 0.0),
-                                       _cf, _bbox_tuple)
-            if _edf is None or _edf.empty:
-                continue
-            _edf = _edf.copy()
-            if _infra_use_feet:
-                _edf["_band"] = _edf["_band"].map(BAND_MAP_M_TO_FT)
-            for _bnd, _cnt in _edf["_band"].value_counts().items():
-                _elev_rows.append({
-                    "Layer":     f"{_lcfg['icon']} {_ln}",
-                    "Elev_Band": _bnd,
-                    "Count":     int(_cnt),
-                    "_color":    _lcfg["color"],
-                })
-
-        if _elev_rows:
-            _elev_df = pd.DataFrame(_elev_rows)
-            _elev_df["Elev_Band"] = pd.Categorical(
-                _elev_df["Elev_Band"], categories=_i_band_order, ordered=True
-            )
-            _elev_df = _elev_df.sort_values("Elev_Band")
-            _lyr_colors = {r["Layer"]: r["_color"] for r in _elev_rows}
-
-            # Combined grouped bar chart
-            fig_epro = px.bar(
-                _elev_df, x="Elev_Band", y="Count",
-                color="Layer",
-                color_discrete_map=_lyr_colors,
-                barmode="group",
-                title=f"Infrastructure facilities by elevation — {infra_area}",
-                labels={"Elev_Band": "Elevation band", "Count": "Facility count"},
-                category_orders={"Elev_Band": _i_band_order},
-            )
-            fig_epro.update_layout(
-                height=420,
-                margin={"t": 50, "b": 10},
-                legend=dict(orientation="h", yanchor="bottom", y=1.02,
-                            xanchor="right", x=1),
-            )
-            st.plotly_chart(fig_epro, use_container_width=True)
-
-            # Per-layer breakdown using elevation-band colors (like population tab)
-            _unique_layers = _elev_df["Layer"].unique().tolist()
-            if len(_unique_layers) == 1:
-                _single = _elev_df.copy()
-                fig_single = px.bar(
-                    _single, x="Elev_Band", y="Count",
-                    color="Elev_Band",
-                    color_discrete_map=_i_band_colors,
-                    title=f"{_unique_layers[0]} — elevation distribution ({infra_area})",
-                    labels={"Elev_Band": "Elevation band", "Count": "Facility count"},
-                    category_orders={"Elev_Band": _i_band_order},
-                )
-                fig_single.update_layout(height=350, showlegend=False,
-                                         margin={"t": 50, "b": 10})
-                st.plotly_chart(fig_single, use_container_width=True)
-            else:
-                # Small multiples: one chart per layer, 3 columns
-                _cols = st.columns(min(3, len(_unique_layers)))
-                for _ci, _lyr in enumerate(_unique_layers):
-                    _sub = _elev_df[_elev_df["Layer"] == _lyr].copy()
-                    fig_sub = px.bar(
-                        _sub, x="Elev_Band", y="Count",
-                        color="Elev_Band",
-                        color_discrete_map=_i_band_colors,
-                        title=_lyr,
-                        labels={"Elev_Band": "Elevation band", "Count": "Facility count"},
-                        category_orders={"Elev_Band": _i_band_order},
-                    )
-                    fig_sub.update_layout(height=300, showlegend=False,
-                                          margin={"t": 40, "b": 10, "l": 10, "r": 10})
-                    with _cols[_ci % len(_cols)]:
-                        st.plotly_chart(fig_sub, use_container_width=True)
-
-            # Pivot table summary
-            _pivot = _elev_df.pivot_table(
-                index="Layer", columns="Elev_Band",
-                values="Count", aggfunc="sum", fill_value=0,
-            )
-            _pivot.columns.name = None
-            _pivot.index.name   = "Layer"
-            _pivot = _pivot.reindex(columns=[b for b in _i_band_order if b in _pivot.columns])
-            _pivot["Total"] = _pivot.sum(axis=1)
-            st.dataframe(_pivot, use_container_width=True)
-
-        elif not os.path.exists(DEM_PATH):
-            st.info("DEM file not found — elevation profile unavailable.")
 
 
 # ── Footer ────────────────────────────────────────────────────────────────────
