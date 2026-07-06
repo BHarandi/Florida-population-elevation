@@ -60,7 +60,7 @@ INFRA_LAYERS = {
     "Bridges": {
         "path":  os.path.join(_T, "Bridges", "Transportation_and_Evacuation_Routes_2_-3049094698008970566", "Bridges.shp"),
         "color": "#ff7f0e", "group": "Transportation", "icon": "🌉",
-        "is_line": True,
+        "is_line": True, "optional": True,
     },
     "Marinas": {
         "path":  _ip("Marinas.geojson",
@@ -75,7 +75,7 @@ INFRA_LAYERS = {
     "Major Roads": {
         "path":    os.path.join(_T, "Major Roadways - FDOT", "Transportation_and_Evacuation_Routes_2_5348635758994616946", "Major_Roadways_-_FDOT.shp"),
         "color":   "#e377c2", "group": "Transportation", "icon": "🛣",
-        "is_line": True, "simplify": 0.005,
+        "is_line": True, "simplify": 0.005, "optional": True,
     },
     "Hospitals": {
         "path":  _ip("Hospitals.geojson",
@@ -85,6 +85,7 @@ INFRA_LAYERS = {
     "Health Care": {
         "path":  os.path.join(_C, "Health Care Facilities", "Critical_Community_and_Emergency_Facilities_2_3516896239554222129", "Health_Care_Facilities.shp"),
         "color": "#e7969c", "group": "Emergency Facilities", "icon": "⚕",
+        "optional": True,
     },
     "Schools": {
         "path":  _ip("Schools.geojson",
@@ -139,6 +140,7 @@ INFRA_LAYERS = {
     "Communications": {
         "path":  os.path.join(_I, "Communications Facilities", "Critical_Infrastructure_2_-2530005311678924858", "Communications_Facilities.shp"),
         "color": "#7f7f7f", "group": "Critical Infrastructure", "icon": "📡",
+        "optional": True,
     },
     "Wastewater": {
         "path":  _ip("Wastewater.geojson",
@@ -1794,7 +1796,7 @@ with tab4:
             _gdf, _err = load_infra_layer(_lcfg["path"], simplify_tol=_simp)
 
             if _gdf is None:
-                if _err:
+                if _err and not _lcfg.get("optional"):
                     st.warning(f"**{_ln}**: {_err}")
                 continue
             if _gdf.empty:
@@ -1884,6 +1886,18 @@ with tab4:
             )
         elif not active_infra_layers:
             st.info("Select one or more layers from the panel on the right to display them on the map.")
+
+        # Note about optional layers that need local data
+        _missing_optional = [
+            f"{INFRA_LAYERS[_ln]['icon']} {_ln}"
+            for _ln in active_infra_layers
+            if INFRA_LAYERS[_ln].get("optional") and not os.path.exists(INFRA_LAYERS[_ln]["path"])
+        ]
+        if _missing_optional:
+            st.caption(
+                f"⚠ Not available without local data: {', '.join(_missing_optional)}. "
+                "These layers require the E: drive dataset."
+            )
 
     # ── Elevation profile — full-width below map columns ───────────────────────
     _point_layers_active = [_ln for _ln in active_infra_layers
