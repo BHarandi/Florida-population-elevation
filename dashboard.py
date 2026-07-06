@@ -33,7 +33,129 @@ DATA_PATH  = os.path.join(_BASE, "data", "population_by_elevation.parquet")
 COUNTY_SHP = os.path.join(_BASE, "data", "shp", "counties", "tl_2010_12_county10.shp")
 STATE_SHP  = os.path.join(_BASE, "data", "shp", "state",    "tl_2020_12_state.shp")
 DEM_PATH      = os.path.join(_BASE, "data", "dem_florida_100m.tif")
-WORLDPOP_DIR  = os.path.join(_BASE, "data", "worldpop")
+WORLDPOP_DIR  = os.path.join(_BASE, "data", "worldpop_wgs84")
+
+# ── Infrastructure data paths ──────────────────────────────────────────────────
+# GeoJSON files (WGS-84, portable) live in data/infrastructure/.
+# Large files that didn't fit GitHub fall back to the E: drive dataset.
+_INFRA_LOCAL = os.path.join(_BASE, "data", "infrastructure")
+INFRA_ROOT   = r"E:\2026\Datasets\infrastracture"
+_T = os.path.join(INFRA_ROOT, "Transportation and Evacuation Routes")
+_C = os.path.join(INFRA_ROOT, "Critical Community and Emergency Facilities")
+_I = os.path.join(INFRA_ROOT, "Critical Infrastructure")
+
+
+def _ip(local_name, fallback):
+    """Return local GeoJSON path when present, else E: drive fallback."""
+    p = os.path.join(_INFRA_LOCAL, local_name)
+    return p if os.path.exists(p) else fallback
+
+
+INFRA_LAYERS = {
+    "Airports": {
+        "path":  _ip("Airports.geojson",
+                     os.path.join(_T, "Airports", "Transportation_and_Evacuation_Routes_2_1194168659848709615", "Airports.shp")),
+        "color": "#1f77b4", "group": "Transportation", "icon": "✈",
+    },
+    "Bridges": {
+        "path":  os.path.join(_T, "Bridges", "Transportation_and_Evacuation_Routes_2_-3049094698008970566", "Bridges.shp"),
+        "color": "#ff7f0e", "group": "Transportation", "icon": "🌉",
+        "is_line": True,
+    },
+    "Marinas": {
+        "path":  _ip("Marinas.geojson",
+                     os.path.join(_T, "Marinas", "Transportation_and_Evacuation_Routes_2_7699387341005298133", "Marinas.shp")),
+        "color": "#9467bd", "group": "Transportation", "icon": "⚓",
+    },
+    "Ports": {
+        "path":  _ip("Ports.geojson",
+                     os.path.join(_T, "Ports - PT", "Transportation_and_Evacuation_Routes_2_-5243994656539743605.geojson")),
+        "color": "#8c564b", "group": "Transportation", "icon": "🚢",
+    },
+    "Major Roads": {
+        "path":     os.path.join(_T, "Major Roadways - FDOT", "Transportation_and_Evacuation_Routes_2_5348635758994616946", "Major_Roadways_-_FDOT.shp"),
+        "color":    "#e377c2", "group": "Transportation", "icon": "🛣",
+        "is_line":  True, "simplify": 0.005,
+    },
+    "Hospitals": {
+        "path":  _ip("Hospitals.geojson",
+                     os.path.join(_C, "Hospitals", "Critical_Community_and_Emergency_Facilities_2_1792414469893767926", "Hospitals.shp")),
+        "color": "#d62728", "group": "Emergency Facilities", "icon": "🏥",
+    },
+    "Health Care": {
+        "path":  os.path.join(_C, "Health Care Facilities", "Critical_Community_and_Emergency_Facilities_2_3516896239554222129", "Health_Care_Facilities.shp"),
+        "color": "#e7969c", "group": "Emergency Facilities", "icon": "⚕",
+    },
+    "Schools": {
+        "path":  _ip("Schools.geojson",
+                     os.path.join(_C, "Schools", "Critical_Community_and_Emergency_Facilities_2_-5027662022404104295", "Schools.shp")),
+        "color": "#17becf", "group": "Emergency Facilities", "icon": "🏫",
+    },
+    "Fire Stations": {
+        "path":  _ip("Fire_Stations.geojson",
+                     os.path.join(_C, "Fire Stations", "Critical_Community_and_Emergency_Facilities_2_-1047806458352401644", "Fire_Stations.shp")),
+        "color": "#ff0000", "group": "Emergency Facilities", "icon": "🚒",
+    },
+    "EMS Facilities": {
+        "path":  _ip("EMS.geojson",
+                     os.path.join(_C, "Emergency Medical Service Facilities", "Critical_Community_and_Emergency_Facilities_2_4498557151273359554", "Emergency_Medical_Service_Facilities.shp")),
+        "color": "#2ca02c", "group": "Emergency Facilities", "icon": "🚑",
+    },
+    "Law Enforcement": {
+        "path":  _ip("Law_Enforcement.geojson",
+                     os.path.join(_C, "Law Enforcement Facilities", "Critical_Community_and_Emergency_Facilities_2_4401688805576930661", "Law_Enforcement_Facilities.shp")),
+        "color": "#1a9850", "group": "Emergency Facilities", "icon": "🚔",
+    },
+    "Risk Shelters": {
+        "path":  _ip("Risk_Shelters.geojson",
+                     os.path.join(_C, "Risk Shelter Inventory", "Critical_Community_and_Emergency_Facilities_2_-1943562129689500394", "Risk_Shelter_Inventory.shp")),
+        "color": "#aec7e8", "group": "Emergency Facilities", "icon": "🏠",
+    },
+    "Emergency Ops": {
+        "path":  _ip("Emergency_Ops.geojson",
+                     os.path.join(_C, "Emergency Operation Centers", "Critical_Community_and_Emergency_Facilities_2_821146408615340654.geojson")),
+        "color": "#ffbb78", "group": "Emergency Facilities", "icon": "📟",
+    },
+    "Logistical Staging": {
+        "path":  _ip("Logistical_Staging.geojson",
+                     os.path.join(_C, "Logistical Staging Areas", "Critical_Community_and_Emergency_Facilities_2_-5578331856732885395.geojson")),
+        "color": "#9edae5", "group": "Emergency Facilities", "icon": "🏗",
+    },
+    "Correctional": {
+        "path":  _ip("Correctional.geojson",
+                     os.path.join(_C, "Correctional Facilities", "Critical_Community_and_Emergency_Facilities_2_6939651817516893249.geojson")),
+        "color": "#c7c7c7", "group": "Emergency Facilities", "icon": "🔒",
+    },
+    "Disaster Recovery": {
+        "path":  _ip("Disaster_Recovery.geojson",
+                     os.path.join(_C, "Disaster Recovery Centers", "Critical_Community_and_Emergency_Facilities_2_8157404733337029249.geojson")),
+        "color": "#f7b6d2", "group": "Emergency Facilities", "icon": "🔧",
+    },
+    "Electric Power": {
+        "path":  _ip("Electric_Power.geojson",
+                     os.path.join(_I, "Electric Production and Supply Facilities - PT", "Critical_Infrastructure_2_-7715989192034689186", "Electric_Production_and_Supply_Facilities_-_PT.shp")),
+        "color": "#ffd700", "group": "Critical Infrastructure", "icon": "⚡",
+    },
+    "Communications": {
+        "path":  os.path.join(_I, "Communications Facilities", "Critical_Infrastructure_2_-2530005311678924858", "Communications_Facilities.shp"),
+        "color": "#7f7f7f", "group": "Critical Infrastructure", "icon": "📡",
+    },
+    "Wastewater": {
+        "path":  _ip("Wastewater.geojson",
+                     os.path.join(_I, "Wastewater Treatment Facilities and Lift Stations", "Critical_Infrastructure_2_-6384592852190066085", "Wastewater_Treatment_Facilities_and_Lift_Stations.shp")),
+        "color": "#bcbd22", "group": "Critical Infrastructure", "icon": "💧",
+    },
+    "Stormwater": {
+        "path":  _ip("Stormwater.geojson",
+                     os.path.join(_I, "Stormwater Treatment Facilities and Pump Stations - PT", "Critical_Infrastructure_2_-1542211587000766307", "Stormwater_Treatment_Facilities_and_Pump_Stations_-_PT.shp")),
+        "color": "#6b6ecf", "group": "Critical Infrastructure", "icon": "🌊",
+    },
+    "Solid Waste": {
+        "path":  _ip("Solid_Waste_TSD.geojson",
+                     os.path.join(_I, "Solid and Hazardous Waste Facilities - TSD", "Critical_Infrastructure_2_9105319738231184869.geojson")),
+        "color": "#8c6d31", "group": "Critical Infrastructure", "icon": "☣",
+    },
+}
 
 BAND_ORDER_M  = ["0-1 m",   "1-2 m",   "2-5 m",   "5-10 m",  "10-25 m", "25-50 m", "50+ m"]
 BAND_ORDER_FT = ["0-3 ft",  "3-7 ft",  "7-16 ft", "16-33 ft","33-82 ft","82-164 ft","164+ ft"]
@@ -94,6 +216,40 @@ def load_state_geometry_wkt():
     from shapely.ops import unary_union
     gdf = gpd.read_file(STATE_SHP).to_crs(epsg=4326)
     return unary_union(gdf.geometry).wkt
+
+
+@st.cache_data(show_spinner="Loading infrastructure layer…")
+def load_infra_layer(path: str, simplify_tol: float = 0.0):
+    """Load an infrastructure shapefile or GeoJSON into a WGS-84 GeoDataFrame."""
+    if not path or not os.path.exists(path):
+        return None
+    try:
+        gdf = gpd.read_file(path)
+        if gdf.empty:
+            return None
+        if gdf.crs is None:
+            gdf = gdf.set_crs(epsg=4326)
+        else:
+            gdf = gdf.to_crs(epsg=4326)
+        if simplify_tol > 0:
+            gdf = gdf.copy()
+            gdf["geometry"] = gdf.geometry.simplify(simplify_tol, preserve_topology=True)
+        return gdf
+    except Exception:
+        return None
+
+
+def _infra_hover_texts(gdf: "gpd.GeoDataFrame") -> list:
+    """Build hover label strings for an infrastructure GeoDataFrame."""
+    cols = set(gdf.columns)
+    name_col   = next((c for c in ["Name", "NAME", "FACILITYNAM", "LABEL", "SITENAME"] if c in cols), None)
+    county_col = next((c for c in ["COUNTY", "County", "COUNTY_NAM"] if c in cols), None)
+    names    = gdf[name_col].fillna("—").astype(str)   if name_col   else ["—"] * len(gdf)
+    counties = gdf[county_col].fillna("").astype(str)  if county_col else [""] * len(gdf)
+    return [
+        f"<b>{n.strip() or '—'}</b>" + (f"<br>{c.strip()} County" if c.strip() else "")
+        for n, c in zip(names, counties)
+    ]
 
 
 @st.cache_data(show_spinner="Reading DEM …")
@@ -259,7 +415,7 @@ def get_flood_overlay(geom_wkt: str, sea_level_m: float):
     east  = west  + w * out_transform.a
     south = north + h * out_transform.e
 
-    MAX_PX = 600
+    MAX_PX = 2000
     step_h = max(1, h // MAX_PX)
     step_w = max(1, w // MAX_PX)
     dem_ds          = dem[::step_h, ::step_w]
@@ -267,9 +423,9 @@ def get_flood_overlay(geom_wkt: str, sea_level_m: float):
     valid           = ~np.isnan(dem_ds) & ~poly_outside_ds
 
     rgba = np.zeros((dem_ds.shape[0], dem_ds.shape[1], 4), dtype=np.uint8)
-    rgba[valid & (dem_ds < 0)]                             = [ 80, 140, 200, 170]  # blue — already below sea level
-    rgba[valid & (dem_ds >= 0) & (dem_ds <= sea_level_m)] = [220,  40,  40, 150]  # red semi-transparent — flooded
-    rgba[poly_outside_ds]                                  = [  0,   0,   0,   0]  # transparent outside (safe land shows basemap)
+    rgba[valid & (dem_ds < 0)]                             = [ 30, 100, 210, 200]  # blue — already below sea level
+    rgba[valid & (dem_ds >= 0) & (dem_ds <= sea_level_m)] = [220,   0,   0, 160]  # vivid red semi-transparent — flooded
+    rgba[poly_outside_ds]                                  = [  0,   0,   0,   0]  # transparent outside
 
     img = Image.fromarray(rgba, "RGBA")
     buf = io.BytesIO()
@@ -278,88 +434,127 @@ def get_flood_overlay(geom_wkt: str, sea_level_m: float):
     return data_uri, [west, south, east, north]
 
 
+# ── Continuous colormaps for population overlays ──────────────────────────────
+def _apply_colormap(norm_arr: np.ndarray, colors: np.ndarray) -> np.ndarray:
+    """Interpolate norm_arr values [0,1] through an N×3 color stop array."""
+    n = len(colors) - 1
+    v = np.clip(norm_arr, 0, 1) * n
+    lo = np.floor(v).astype(np.int32).clip(0, n - 1)
+    hi = (lo + 1).clip(0, n)
+    t  = (v - lo)[..., np.newaxis]
+    return (colors[lo] * (1 - t) + colors[hi] * t).astype(np.uint8)
+
+_BLUES = np.array([
+    [237, 248, 255],
+    [198, 219, 239],
+    [107, 174, 214],
+    [ 33, 113, 181],
+    [  8,  48, 107],
+], dtype=np.float32)
+
+_YLORRD = np.array([
+    [255, 255, 178],
+    [254, 204,  92],
+    [253, 141,  60],
+    [240,  59,  32],
+    [189,   0,  38],
+], dtype=np.float32)
+
+_LOG_COUNT_MAX = np.log1p(1000.0)     # ~890 peak in Florida (Miami)
+_LOG_DENS_MAX  = np.log1p(100_000.0)  # matching density ceiling
+
+
 @st.cache_data(show_spinner="Loading population map …")
 def get_pop_overlay(geom_wkt: str, year: int):
-    """Clip WorldPop raster to geometry and colorize by population density."""
+    """Clip WorldPop raster to geometry; return count image, density image, bounds, hover."""
     pop_path = os.path.join(WORLDPOP_DIR, f"pop_{year}_florida.tif")
     if not os.path.exists(pop_path):
-        return None, None
+        return None, None, None, None, None
 
     from shapely import wkt as shapely_wkt
     geom_wgs84 = shapely_wkt.loads(geom_wkt)
-    gdf = gpd.GeoDataFrame(geometry=[geom_wgs84], crs="EPSG:4326").to_crs("EPSG:4269")
-    geom_4269 = gdf.geometry.iloc[0]
 
     try:
         with rasterio.open(pop_path) as src:
+            pop_nodata = src.nodata
             out_image, out_transform = rio_mask(
-                src, [geom_4269.__geo_interface__], crop=True, filled=False,
+                src, [geom_wgs84.__geo_interface__], crop=True, filled=False,
             )
     except Exception:
-        return None, None
+        return None, None, None, None, None
 
     from rasterio.features import geometry_mask
     pop_ma = out_image[0]
     h, w = pop_ma.shape
     if h == 0 or w == 0:
-        return None, None
+        return None, None, None, None, None
 
     poly_outside = geometry_mask(
-        [geom_4269.__geo_interface__],
+        [geom_wgs84.__geo_interface__],
         out_shape=(h, w), transform=out_transform, invert=False,
     )
     pop = pop_ma.filled(np.nan).astype(np.float32)
+    # Convert WorldPop's NoData sentinel to NaN (exact match)
+    if pop_nodata is not None:
+        pop[pop == np.float32(pop_nodata)] = np.nan
+    # Safety: any negative value is impossible for population counts
+    pop[pop < 0] = np.nan
 
-    # Mask ocean pixels using DEM (fixes bilinear-resampling bleed at coastlines)
-    if os.path.exists(DEM_PATH):
-        try:
-            with rasterio.open(DEM_PATH) as dem_src:
-                dem_raw, _ = rio_mask(
-                    dem_src, [geom_4269.__geo_interface__], crop=True, filled=True, fill_value=0,
-                )
-            dem_arr = dem_raw[0].astype(np.float32)
-            if dem_arr.shape != (h, w):
-                row_idx = np.round(np.linspace(0, dem_arr.shape[0] - 1, h)).astype(int)
-                col_idx = np.round(np.linspace(0, dem_arr.shape[1] - 1, w)).astype(int)
-                dem_arr = dem_arr[np.ix_(row_idx, col_idx)]
-            pop[dem_arr < 0] = np.nan
-        except Exception:
-            pass
     west  = out_transform.c
     north = out_transform.f
     east  = west  + w * out_transform.a
     south = north + h * out_transform.e
 
-    MAX_PX = 600
+    # Use full resolution for small areas (counties); cap at 3000px for large areas (statewide)
+    MAX_PX = 3000
     step_h = max(1, h // MAX_PX)
     step_w = max(1, w // MAX_PX)
     pop_ds          = pop[::step_h, ::step_w]
     poly_outside_ds = poly_outside[::step_h, ::step_w]
 
     rows, cols = pop_ds.shape
-    rgba  = np.zeros((rows, cols, 4), dtype=np.uint8)
+    # Color pixels with population > 0 (includes fractional values e.g. 0.3, 0.7 people/pixel)
+    # Exactly 0 = no people at all; NaN = water/outside boundary
     valid = ~np.isnan(pop_ds) & (pop_ds > 0)
 
-    # Sequential yellow → orange → red (people per 100 m pixel)
-    pop_bands = [
-        (  0,   1, (255, 255, 200, 120)),
-        (  1,   5, (255, 237, 160, 160)),
-        (  5,  25, (254, 178,  76, 190)),
-        ( 25, 100, (253, 141,  60, 210)),
-        (100, 500, (227,  26,  28, 220)),
-        (500,9999, (165,   0,  38, 230)),
+    # ── 5-class quantile breaks (matching ArcGIS Classify → Quantile, 5 classes) ─
+    valid_vals = pop_ds[valid]
+    if valid_vals.size >= 5:
+        q20, q40, q60, q80 = np.percentile(valid_vals, [20, 40, 60, 80])
+    else:
+        q20, q40, q60, q80 = 0.5, 3.5, 10.5, 17.5
+
+    # Yellow → orange → bright red (matching ArcGIS "Yellow to Red" ramp, 5 classes)
+    _Q5_COLORS = [
+        (255, 255,   0, 210),  # Q1 — bright yellow
+        (255, 168,   0, 215),  # Q2 — amber
+        (255,  98,   0, 220),  # Q3 — orange
+        (255,  30,   0, 225),  # Q4 — red-orange
+        (255,   0,   0, 230),  # Q5 — bright red
     ]
-    for low, high, color in pop_bands:
-        mask = valid & (pop_ds >= low) & (pop_ds < high)
-        rgba[mask] = color
-    rgba[poly_outside_ds] = [0, 0, 0, 0]
 
-    img = Image.fromarray(rgba, "RGBA")
-    buf = io.BytesIO()
-    img.save(buf, format="PNG")
-    data_uri = "data:image/png;base64," + base64.b64encode(buf.getvalue()).decode()
+    # ── Density image: 5-class quantile (same upper-value logic as ArcGIS) ───
+    rgba_dens = np.zeros((rows, cols, 4), dtype=np.uint8)
+    # Class 1: ≤ q20  (includes all 0-valued land pixels when q20 = 0)
+    rgba_dens[valid & (pop_ds <= q20)] = _Q5_COLORS[0]
+    # Classes 2–4: (prev_break, curr_break]
+    rgba_dens[valid & (pop_ds > q20) & (pop_ds <= q40)] = _Q5_COLORS[1]
+    rgba_dens[valid & (pop_ds > q40) & (pop_ds <= q60)] = _Q5_COLORS[2]
+    rgba_dens[valid & (pop_ds > q60) & (pop_ds <= q80)] = _Q5_COLORS[3]
+    # Class 5: > q80
+    rgba_dens[valid & (pop_ds > q80)] = _Q5_COLORS[4]
+    rgba_dens[poly_outside_ds] = 0
 
-    # Hover grid — ~60×60 sample points
+    buf_dens = io.BytesIO()
+    Image.fromarray(rgba_dens, "RGBA").save(buf_dens, format="PNG")
+    data_uri_dens = "data:image/png;base64," + base64.b64encode(buf_dens.getvalue()).decode()
+
+    # [min, q20, q40, q60, q80, max] in people/km² for the legend
+    max_dens = round(float(np.nanmax(valid_vals)) * 100) if valid.any() else 100
+    dens_breaks = [0, round(q20 * 100, 1), round(q40 * 100, 1),
+                   round(q60 * 100, 1), round(q80 * 100, 1), max_dens]
+
+    # ── Hover grid — ~60×60 sample points ────────────────────────────────────
     HOVER_N = 60
     sh = max(1, rows // HOVER_N)
     sw = max(1, cols // HOVER_N)
@@ -368,33 +563,43 @@ def get_pop_overlay(geom_wkt: str, year: int):
     lon_arr = np.linspace(west, east,  hc)
     lat_arr = np.linspace(north, south, hr)
     lons_m, lats_m = np.meshgrid(lon_arr, lat_arr)
-    # Include all non-NaN pixels within the polygon (NaN = outside boundary or ocean NoData)
     valid_h = ~np.isnan(pop_h)
     hover = {
         "lons": lons_m[valid_h].tolist(),
         "lats": lats_m[valid_h].tolist(),
-        "text": [f"{'< 1' if v * 100 < 1 else f'~{v * 100:.0f}'} people / km²" for v in pop_h[valid_h].tolist()],
+        "text": [
+            f"{'< 1 person' if v < 0.01 else f'~{v:.1f} people'} | "
+            f"{'< 1' if v * 100 < 1 else f'~{v * 100:.0f}'} people/km²"
+            for v in pop_h[valid_h].tolist()
+        ],
     }
 
-    return data_uri, [west, south, east, north], hover
+    return None, data_uri_dens, [west, south, east, north], hover, dens_breaks
 
 
-def _pop_legend_html() -> str:
-    items = [
-        ("#FFFFC8", "< 100"),
-        ("#FFEDA0", "100–500"),
-        ("#FEB24C", "500–2,500"),
-        ("#FD8D3C", "2,500–10,000"),
-        ("#E31A1C", "10,000–50,000"),
-        ("#A50026", "50,000+"),
-    ]
-    swatches = " ".join(
-        f'<span title="{lbl}" style="display:inline-block;width:14px;height:14px;'
-        f'background:{col};border-radius:2px;margin-right:2px;vertical-align:middle;"></span>'
-        f'<small style="margin-right:6px;">{lbl}</small>'
-        for col, lbl in items
+def _pop_legend_html(breaks: list) -> str:
+    """Continuous gradient legend — breaks = [min, q20, q40, q60, q80, max] in people/km²."""
+    min_d, max_d = breaks[0], breaks[-1]
+
+    def _fmt(v):
+        if v >= 10_000: return f"{v/1_000:.0f}k"
+        if v >= 1_000:  return f"{v/1_000:.1f}k"
+        return f"{v:.0f}"
+
+    gradient = "linear-gradient(to right, #FFFF00, #FF8800, #FF0000)"
+    return (
+        '<div style="font-size:0.8rem;line-height:1.6;">'
+        'Population density (people/km²):'
+        '<br>'
+        f'<span style="display:inline-block;width:220px;height:12px;'
+        f'background:{gradient};border-radius:2px;"></span>'
+        '<br>'
+        f'<div style="display:flex;justify-content:space-between;width:220px;font-size:0.75rem;">'
+        f'<span>{_fmt(min_d)}</span>'
+        f'<span>{_fmt(max_d)}</span>'
+        f'</div>'
+        '</div>'
     )
-    return f'<div style="line-height:2;font-size:0.8rem;">Population density (people/km²): {swatches}</div>'
 
 
 def _dem_legend_html(unit_k: str) -> str:
@@ -513,7 +718,7 @@ df_area = get_area_df(selected_area, unit_key,
 
 
 # ── Tabs ──────────────────────────────────────────────────────────────────────
-tab1, tab2, tab3 = st.tabs(["Distribution", "Map", "Sea Level Rise"])
+tab1, tab2, tab3, tab4 = st.tabs(["Distribution", "Map", "Sea Level Rise", "Infrastructure"])
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -540,7 +745,22 @@ with tab1:
     if not selected_bands:
         st.info("Select at least one elevation band above.")
     elif df_snap.empty:
-        st.warning("No data for this selection.")
+        # Check whether any band has data for this county (to give a helpful message)
+        scope = "Statewide" if selected_area == "Florida (Statewide)" else "County"
+        county_bands_m = df_all[df_all["Scope"] == scope] if scope == "Statewide" else df_all[(df_all["Scope"] == scope) & (df_all["County_Name"] == selected_area)]
+        county_bands_m = county_bands_m["Elev_Band"].unique()
+        if use_feet:
+            available = [BAND_MAP_M_TO_FT.get(b, b) for b in county_bands_m if BAND_MAP_M_TO_FT.get(b, b) in BAND_ORDER_FT]
+            available = sorted(available, key=lambda x: BAND_ORDER_FT.index(x) if x in BAND_ORDER_FT else 99)
+        else:
+            available = [b for b in BAND_ORDER_M if b in county_bands_m]
+        if available:
+            st.warning(
+                f"No population recorded for the selected band(s) in **{selected_area}**. "
+                f"Available elevation bands: {', '.join(available)}."
+            )
+        else:
+            st.warning("No data for this selection.")
     else:
         total_pop = df_snap["Population"].sum()
         col_ctrl.metric("Total population", f"{total_pop:,.0f}")
@@ -761,7 +981,7 @@ with tab2:
         # ══════════════════════════════════════════════════════════════════════
         if map_county != "All counties" and not df_map.empty:
             st.markdown("---")
-            zoom_col1, zoom_col2 = st.columns(2)
+            zoom_col1, zoom_col3 = st.columns(2)
 
             # ── Get county geometry + centroid ────────────────────────────────
             county_geoid_sel = df_map[
@@ -879,31 +1099,31 @@ with tab2:
                 elif dem_img is None:
                     st.warning("DEM file not found — outline only.")
 
-            # ── Right column: population distribution map ─────────────────────
-            with zoom_col2:
-                st.markdown(f"**{map_county} — population ({map_year})**")
-                _pop_bmap_map = {
-                    "Streets (OpenStreetMap)": "open-street-map",
-                    "Light (Carto)":           "carto-positron",
-                    "Dark (Carto)":            "carto-darkmatter",
-                }
-                p_sel, p_bmap, p_tog = st.columns([2, 1, 1])
-                pop_basemap_style  = p_sel.selectbox("Basemap", options=list(_pop_bmap_map.keys()), index=0, key="pop_basemap_county", label_visibility="collapsed")
-                show_pop_basemap   = p_bmap.toggle("Basemap",     value=True, key="pop_show_basemap_county")
-                show_pop           = p_tog.toggle("Population",   value=True, key="show_pop_county")
-                pop_mapbox_style   = _pop_bmap_map[pop_basemap_style] if show_pop_basemap else "white-bg"
-                pop_img, pop_bounds, pop_hover = get_pop_overlay(geom.wkt, map_year)
-                if pop_img is None:
+            # ── Right column: population density map (yellow→red) ────────────
+            pop_img_count, pop_img_dens, pop_bounds, pop_hover, pop_dens_breaks = get_pop_overlay(geom.wkt, map_year)
+            _pop_bmap_map = {
+                "Streets (OpenStreetMap)": "open-street-map",
+                "Light (Carto)":           "carto-positron",
+                "Dark (Carto)":            "carto-darkmatter",
+            }
+            with zoom_col3:
+                st.markdown(f"**{map_county} — population density ({map_year})**")
+                pd_sel, pd_bmap, pd_tog = st.columns([2, 1, 1])
+                pop_dens_bstyle  = pd_sel.selectbox("Basemap", options=list(_pop_bmap_map.keys()), index=0, key="pop_dens_basemap_county", label_visibility="collapsed")
+                show_dens_bmap   = pd_bmap.toggle("Basemap",  value=True, key="pop_dens_show_basemap_county")
+                show_dens        = pd_tog.toggle("Population density",   value=True, key="show_dens_county")
+                pop_dens_style   = _pop_bmap_map[pop_dens_bstyle] if show_dens_bmap else "white-bg"
+                if pop_img_dens is None:
                     st.info(f"WorldPop raster for {map_year} not found in data/worldpop/.")
                 else:
-                    fig_pop = go.Figure()
-                    fig_pop.add_trace(go.Scattermapbox(
+                    fig_dens = go.Figure()
+                    fig_dens.add_trace(go.Scattermapbox(
                         lon=boundary_lons, lat=boundary_lats, mode="lines",
                         line=dict(color="black", width=2.5),
                         hoverinfo="skip", showlegend=False,
                     ))
                     if pop_hover:
-                        fig_pop.add_trace(go.Scattermapbox(
+                        fig_dens.add_trace(go.Scattermapbox(
                             lon=pop_hover["lons"], lat=pop_hover["lats"],
                             mode="markers",
                             marker=dict(size=14, color="rgba(0,0,0,0)"),
@@ -912,30 +1132,30 @@ with tab2:
                             showlegend=False, name="",
                         ))
                     pw84, ps84, pe84, pn84 = pop_bounds
-                    _pop_layers = [{
+                    _dens_layers = [{
                         "sourcetype": "image",
-                        "source": pop_img,
+                        "source": pop_img_dens,
                         "coordinates": [
                             [pw84, pn84], [pe84, pn84],
                             [pe84, ps84], [pw84, ps84],
                         ],
                         "opacity": 0.85,
                         "below": "traces",
-                    }] if show_pop else []
-                    fig_pop.update_layout(
+                    }] if show_dens else []
+                    fig_dens.update_layout(
                         mapbox=dict(
-                            style=pop_mapbox_style,
+                            style=pop_dens_style,
                             zoom=zoom_level,
                             center={"lat": center_lat, "lon": center_lon},
-                            layers=_pop_layers,
+                            layers=_dens_layers,
                         ),
                         height=440,
                         margin={"r": 0, "t": 10, "l": 0, "b": 0},
-                        uirevision=f"{map_county}_pop",
+                        uirevision=f"{map_county}_pop_dens",
                     )
-                    st.plotly_chart(fig_pop, use_container_width=True, config={"scrollZoom": True})
-                    if show_pop:
-                        st.markdown(_pop_legend_html(), unsafe_allow_html=True)
+                    st.plotly_chart(fig_dens, use_container_width=True, config={"scrollZoom": True})
+                    if show_dens and pop_dens_breaks:
+                        st.markdown(_pop_legend_html(pop_dens_breaks), unsafe_allow_html=True)
 
             # ── Elevation profile chart (below, full width) ───────────────────
             st.markdown(f"**{map_county} — elevation profile ({map_year})**")
@@ -997,7 +1217,7 @@ with tab2:
         # ══════════════════════════════════════════════════════════════════════
         elif map_county == "All counties":
             st.markdown("---")
-            state_col1, state_col2 = st.columns(2)
+            state_col1, state_col3 = st.columns(2)
 
             # ── Statewide DEM map ─────────────────────────────────────────────
             with state_col1:
@@ -1070,32 +1290,33 @@ with tab2:
                     elif dem_img is None:
                         st.warning("DEM file not found — outline only.")
 
-            # ── Right column: statewide population distribution map ───────────
-            with state_col2:
-                st.markdown(f"**Florida — population ({map_year})**")
-                _pop_bmap_map_s = {
-                    "Streets (OpenStreetMap)": "open-street-map",
-                    "Light (Carto)":           "carto-positron",
-                    "Dark (Carto)":            "carto-darkmatter",
-                }
-                ps_sel, ps_bmap, ps_tog = st.columns([2, 1, 1])
-                pop_basemap_style_s = ps_sel.selectbox("Basemap", options=list(_pop_bmap_map_s.keys()), index=0, key="pop_basemap_state", label_visibility="collapsed")
-                show_pop_basemap_s  = ps_bmap.toggle("Basemap",    value=True, key="pop_show_basemap_state")
-                show_pop_s          = ps_tog.toggle("Population",  value=True, key="show_pop_state")
-                pop_mapbox_style_s  = _pop_bmap_map_s[pop_basemap_style_s] if show_pop_basemap_s else "white-bg"
-                pop_img_s, pop_bounds_s, pop_hover_s = get_pop_overlay(state_wkt, map_year)
-                if pop_img_s is None:
+            # ── Right column: statewide population density ────────────────────
+            _pop_bmap_map_s = {
+                "Streets (OpenStreetMap)": "open-street-map",
+                "Light (Carto)":           "carto-positron",
+                "Dark (Carto)":            "carto-darkmatter",
+            }
+            pop_img_count_s, pop_img_dens_s, pop_bounds_s, pop_hover_s, pop_dens_breaks_s = get_pop_overlay(state_wkt, map_year)
+
+            with state_col3:
+                st.markdown(f"**Florida — population density ({map_year})**")
+                pds_sel, pds_bmap, pds_tog = st.columns([2, 1, 1])
+                pop_dens_bstyle_s  = pds_sel.selectbox("Basemap", options=list(_pop_bmap_map_s.keys()), index=0, key="pop_dens_basemap_state", label_visibility="collapsed")
+                show_dens_bmap_s   = pds_bmap.toggle("Basemap",  value=True, key="pop_dens_show_basemap_state")
+                show_dens_s        = pds_tog.toggle("Population density",   value=True, key="show_dens_state")
+                pop_dens_style_s   = _pop_bmap_map_s[pop_dens_bstyle_s] if show_dens_bmap_s else "white-bg"
+                if pop_img_dens_s is None:
                     st.info(f"WorldPop raster for {map_year} not found in data/worldpop/.")
                 else:
-                    fig_pop_s = go.Figure()
+                    fig_dens_s = go.Figure()
                     for lons, lats in state_rings:
-                        fig_pop_s.add_trace(go.Scattermapbox(
+                        fig_dens_s.add_trace(go.Scattermapbox(
                             lon=lons, lat=lats, mode="lines",
                             line=dict(color="black", width=2),
                             hoverinfo="skip", showlegend=False,
                         ))
                     if pop_hover_s:
-                        fig_pop_s.add_trace(go.Scattermapbox(
+                        fig_dens_s.add_trace(go.Scattermapbox(
                             lon=pop_hover_s["lons"], lat=pop_hover_s["lats"],
                             mode="markers",
                             marker=dict(size=14, color="rgba(0,0,0,0)"),
@@ -1104,30 +1325,30 @@ with tab2:
                             showlegend=False, name="",
                         ))
                     pw84s, ps84s, pe84s, pn84s = pop_bounds_s
-                    _pop_layers_s = [{
+                    _dens_layers_s = [{
                         "sourcetype": "image",
-                        "source": pop_img_s,
+                        "source": pop_img_dens_s,
                         "coordinates": [
                             [pw84s, pn84s], [pe84s, pn84s],
                             [pe84s, ps84s], [pw84s, ps84s],
                         ],
                         "opacity": 0.85,
                         "below": "traces",
-                    }] if show_pop_s else []
-                    fig_pop_s.update_layout(
+                    }] if show_dens_s else []
+                    fig_dens_s.update_layout(
                         mapbox=dict(
-                            style=pop_mapbox_style_s,
+                            style=pop_dens_style_s,
                             zoom=5.5,
                             center={"lat": 27.8, "lon": -81.5},
-                            layers=_pop_layers_s,
+                            layers=_dens_layers_s,
                         ),
                         height=480,
                         margin={"r": 0, "t": 10, "l": 0, "b": 0},
-                        uirevision="state_pop",
+                        uirevision="state_pop_dens",
                     )
-                    st.plotly_chart(fig_pop_s, use_container_width=True, config={"scrollZoom": True})
-                    if show_pop_s:
-                        st.markdown(_pop_legend_html(), unsafe_allow_html=True)
+                    st.plotly_chart(fig_dens_s, use_container_width=True, config={"scrollZoom": True})
+                    if show_dens_s and pop_dens_breaks_s:
+                        st.markdown(_pop_legend_html(pop_dens_breaks_s), unsafe_allow_html=True)
 
             # ── Statewide elevation profile chart (below, full width) ─────────
             st.markdown(f"**Florida — elevation profile ({map_year})**")
@@ -1258,7 +1479,6 @@ with tab2:
 # ─────────────────────────────────────────────────────────────────────────────
 with tab3:
     st.subheader("Sea Level Rise — Flood Risk")
-    st.caption("Areas shown in red would be below the tideline at the selected sea level rise scenario.")
 
     slr_col1, slr_col2 = st.columns([3, 1])
 
@@ -1376,7 +1596,7 @@ with tab3:
 
             # Legend
             st.markdown(
-                '<span style="display:inline-block;width:14px;height:14px;background:#d64541;'
+                '<span style="display:inline-block;width:14px;height:14px;background:#DC0000;'
                 'border-radius:2px;margin-right:4px;vertical-align:middle;"></span>'
                 f'<small>Flooded at +{slr_label} sea level rise</small>&nbsp;&nbsp;&nbsp;'
                 '<span style="display:inline-block;width:14px;height:14px;background:#2166ac;'
@@ -1419,6 +1639,179 @@ with tab3:
         .reset_index(drop=True),
         use_container_width=True, hide_index=True,
     )
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# TAB 4 — Infrastructure
+# ─────────────────────────────────────────────────────────────────────────────
+with tab4:
+    st.subheader("Florida Infrastructure Layers")
+
+    infra_map_col, infra_ctrl_col = st.columns([3, 1])
+
+    with infra_ctrl_col:
+        infra_area = st.selectbox("County / Statewide", county_options, key="infra_area")
+        _infra_bmap_opts = {
+            "Light (Carto)":           "carto-positron",
+            "Streets (OpenStreetMap)": "open-street-map",
+            "Dark (Carto)":            "carto-darkmatter",
+        }
+        infra_bmap_style = st.selectbox("Basemap", list(_infra_bmap_opts.keys()), key="infra_bmap")
+
+        st.markdown("---")
+
+        # Layer checkboxes grouped by category
+        _layer_groups = {}
+        for _ln, _lcfg in INFRA_LAYERS.items():
+            _layer_groups.setdefault(_lcfg["group"], []).append(_ln)
+
+        active_infra_layers = []
+        for _grp, _lnames in _layer_groups.items():
+            _expanded = _grp in ("Transportation", "Emergency Facilities")
+            with st.expander(f"**{_grp}**", expanded=_expanded):
+                for _ln in _lnames:
+                    _lcfg = INFRA_LAYERS[_ln]
+                    _note = " *(slow first load)*" if _ln == "Major Roads" else ""
+                    _default = _ln in ("Airports", "Hospitals")
+                    _checked = st.checkbox(
+                        f"{_lcfg['icon']} {_ln}{_note}",
+                        key=f"infra_{_ln.replace(' ', '_')}",
+                        value=_default,
+                    )
+                    if _checked:
+                        active_infra_layers.append(_ln)
+
+    with infra_map_col:
+        # Map viewport
+        if infra_area == "Florida (Statewide)":
+            _ic = {"lat": 27.8, "lon": -81.5}
+            _iz = 5.5
+            _cf = None
+            _cb = None
+        else:
+            _igid = df_all[
+                (df_all["Scope"] == "County") & (df_all["County_Name"] == infra_area)
+            ]["County_GEOID"]
+            _igid = _igid.iloc[0] if not _igid.empty else None
+            _ifeats = [f for f in fl_geojson["features"]
+                       if f["properties"]["GEOID10"] == _igid] if _igid else []
+            if _ifeats:
+                _igeom = shape(_ifeats[0]["geometry"])
+                _ic = {"lat": _igeom.centroid.y, "lon": _igeom.centroid.x}
+                _ibx, _iby, _ibxx, _ibyy = _igeom.bounds
+                _iz = max(6, min(10, round(8.0 - max(_ibxx - _ibx, _ibyy - _iby) * 6)))
+                _cf = infra_area
+                _cb = (_ibx, _iby, _ibxx, _ibyy)
+            else:
+                _ic = {"lat": 27.8, "lon": -81.5}
+                _iz = 5.5
+                _cf = infra_area
+                _cb = None
+
+        fig_infra = go.Figure()
+
+        # State boundary outline
+        for _bl, _bla in state_rings:
+            fig_infra.add_trace(go.Scattermapbox(
+                lon=_bl, lat=_bla, mode="lines",
+                line=dict(color="black", width=1),
+                hoverinfo="skip", showlegend=False,
+            ))
+
+        _summary_rows = []
+
+        for _ln in active_infra_layers:
+            _lcfg  = INFRA_LAYERS[_ln]
+            _simp  = _lcfg.get("simplify", 0.0)
+            _gdf   = load_infra_layer(_lcfg["path"], simplify_tol=_simp)
+
+            if _gdf is None or _gdf.empty:
+                continue
+
+            # County filter — try attribute column first, then bbox
+            _fgdf = _gdf
+            if _cf:
+                for _col in ["COUNTY", "County", "COUNTY_NAM"]:
+                    if _col in _fgdf.columns:
+                        _fgdf = _fgdf[_fgdf[_col].str.strip().str.lower() == _cf.lower()]
+                        break
+                if _fgdf.empty and _cb:
+                    _fgdf = _gdf.cx[_cb[0]:_cb[2], _cb[1]:_cb[3]]
+
+            if _fgdf.empty:
+                _summary_rows.append({"Layer": f"{_lcfg['icon']} {_ln}", "Features": 0})
+                continue
+
+            if _lcfg.get("is_line"):
+                # Line geometry → render as Scattermapbox lines
+                _all_lons, _all_lats = [], []
+                for _geom in _fgdf.geometry:
+                    if _geom is None or _geom.is_empty:
+                        continue
+                    _segs = _geom.geoms if _geom.geom_type.startswith("Multi") else [_geom]
+                    for _seg in _segs:
+                        try:
+                            _coords = list(_seg.coords)
+                            _all_lons.extend([c[0] for c in _coords] + [None])
+                            _all_lats.extend([c[1] for c in _coords] + [None])
+                        except Exception:
+                            pass
+                if _all_lons:
+                    fig_infra.add_trace(go.Scattermapbox(
+                        lon=_all_lons, lat=_all_lats, mode="lines",
+                        line=dict(color=_lcfg["color"], width=1.5),
+                        name=f"{_lcfg['icon']} {_ln}",
+                        showlegend=True, hoverinfo="skip",
+                    ))
+                _summary_rows.append({"Layer": f"{_lcfg['icon']} {_ln}", "Features": len(_fgdf)})
+
+            else:
+                # Point / polygon → use centroid for marker position
+                _pts = _fgdf.copy()
+                _pts["_lon"] = _pts.geometry.apply(lambda g: g.centroid.x if g and not g.is_empty else None)
+                _pts["_lat"] = _pts.geometry.apply(lambda g: g.centroid.y if g and not g.is_empty else None)
+                _pts = _pts.dropna(subset=["_lon", "_lat"])
+                if _pts.empty:
+                    continue
+
+                _htexts = _infra_hover_texts(_pts)
+                fig_infra.add_trace(go.Scattermapbox(
+                    lon=_pts["_lon"].tolist(),
+                    lat=_pts["_lat"].tolist(),
+                    mode="markers",
+                    marker=dict(size=8, color=_lcfg["color"], opacity=0.85),
+                    text=_htexts,
+                    hovertemplate="%{text}<extra></extra>",
+                    name=f"{_lcfg['icon']} {_ln}",
+                    showlegend=True,
+                ))
+                _summary_rows.append({"Layer": f"{_lcfg['icon']} {_ln}", "Features": len(_pts)})
+
+        fig_infra.update_layout(
+            mapbox=dict(
+                style=_infra_bmap_opts[infra_bmap_style],
+                zoom=_iz,
+                center=_ic,
+            ),
+            height=680,
+            margin={"r": 0, "t": 10, "l": 0, "b": 0},
+            legend=dict(
+                yanchor="top", y=0.98, xanchor="left", x=0.01,
+                bgcolor="rgba(255,255,255,0.82)",
+                font=dict(size=12),
+            ),
+            uirevision=f"infra_{infra_area}",
+        )
+        st.plotly_chart(fig_infra, use_container_width=True, config={"scrollZoom": True})
+
+        if _summary_rows:
+            st.markdown(f"**Visible layers — feature counts ({infra_area})**")
+            st.dataframe(
+                pd.DataFrame(_summary_rows),
+                use_container_width=False, hide_index=True,
+            )
+        elif not active_infra_layers:
+            st.info("Select one or more layers from the panel on the right to display them on the map.")
 
 
 # ── Footer ────────────────────────────────────────────────────────────────────
