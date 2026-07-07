@@ -1760,6 +1760,9 @@ with tab4:
         }
         infra_bmap_style = st.selectbox("Basemap", list(_infra_bmap_opts.keys()), key="infra_bmap")
         show_infra_dem = st.toggle("Elevation (DEM)", value=True, key="infra_show_dem")
+        infra_dem_unit = st.radio("DEM unit", ["Feet (ft)", "Metric (m)"],
+                                  horizontal=True, key="infra_dem_unit")
+        _infra_dem_unit_k = "Feet" if infra_dem_unit == "Feet (ft)" else "Metric"
 
         st.markdown("---")
 
@@ -1817,7 +1820,7 @@ with tab4:
             elif _ifeats:
                 _dem_wkt_infra = _igeom.wkt
             if _dem_wkt_infra:
-                _infra_dem_img, _infra_dem_bounds, _ = get_dem_overlay(_dem_wkt_infra, "Feet")
+                _infra_dem_img, _infra_dem_bounds, _ = get_dem_overlay(_dem_wkt_infra, _infra_dem_unit_k)
 
         fig_infra = go.Figure()
 
@@ -1959,7 +1962,7 @@ with tab4:
             st.info("Select one or more layers from the panel on the right to display them on the map.")
 
         if _infra_dem_img is not None:
-            st.markdown(_dem_legend_html("Feet"), unsafe_allow_html=True)
+            st.markdown(_dem_legend_html(_infra_dem_unit_k), unsafe_allow_html=True)
 
         # Note about optional layers that need local data
         _missing_optional = [
