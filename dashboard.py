@@ -1068,7 +1068,7 @@ with tab2:
         # ══════════════════════════════════════════════════════════════════════
         # COUNTY ZOOM & ELEVATION PROFILE — shown only when a county is selected
         # ══════════════════════════════════════════════════════════════════════
-        if map_county != "All counties" and not df_map.empty:
+        if map_county != "All counties" and map_county in df_map["County_Name"].values:
             st.markdown("---")
             zoom_col1, zoom_col3 = st.columns(2)
 
@@ -1092,13 +1092,18 @@ with tab2:
                 max_span   = max(maxx - minx, maxy - miny)
                 zoom_level = max(6, min(10, round(8.0 - max_span * 6)))
             else:
+                geom = None
                 center_lat, center_lon, zoom_level = 27.5, -81.5, 7
 
             # ── Zoom map with DEM overlay ─────────────────────────────────────
             with zoom_col1:
                 st.markdown(f"**{map_county} — elevation map (DEM)**")
 
-                dem_img, dem_bounds, dem_hover = get_dem_overlay(geom.wkt, "Feet" if map_use_feet else "Metric")
+                if geom is None:
+                    st.info("County geometry not found.")
+                    dem_img = dem_bounds = dem_hover = None
+                else:
+                    dem_img, dem_bounds, dem_hover = get_dem_overlay(geom.wkt, "Feet" if map_use_feet else "Metric")
 
                 # Basemap + DEM layer controls
                 _basemap_map = {
@@ -1121,16 +1126,18 @@ with tab2:
                 dem_opacity  = 0.78 if show_basemap else 1.0
 
                 # Build county boundary lons/lats for outline trace
-                if geom.geom_type == "MultiPolygon":
+                if geom is not None and geom.geom_type == "MultiPolygon":
                     boundary_lons, boundary_lats = [], []
                     for poly in geom.geoms:
                         coords = list(poly.exterior.coords)
                         boundary_lons += [c[0] for c in coords] + [None]
                         boundary_lats += [c[1] for c in coords] + [None]
-                else:
+                elif geom is not None:
                     coords = list(geom.exterior.coords)
                     boundary_lons = [c[0] for c in coords]
                     boundary_lats = [c[1] for c in coords]
+                else:
+                    boundary_lons, boundary_lats = [], []
 
                 fig_zoom = go.Figure()
                 fig_zoom.add_trace(go.Scattermapbox(
@@ -1185,11 +1192,14 @@ with tab2:
 
                 if dem_img is not None and show_dem:
                     st.markdown(_dem_legend_html("Feet" if map_use_feet else "Metric"), unsafe_allow_html=True)
-                elif dem_img is None:
+                elif dem_img is None and geom is not None:
                     st.warning("DEM file not found — outline only.")
 
             # ── Right column: population density map (yellow→red) ────────────
-            pop_img_count, pop_img_dens, pop_bounds, pop_hover, pop_dens_breaks, _pop_err = get_pop_overlay(geom.wkt, map_year)
+            if geom is not None:
+                pop_img_count, pop_img_dens, pop_bounds, pop_hover, pop_dens_breaks, _pop_err = get_pop_overlay(geom.wkt, map_year)
+            else:
+                pop_img_count, pop_img_dens, pop_bounds, pop_hover, pop_dens_breaks, _pop_err = None, None, None, None, None, "No county geometry."
             _pop_bmap_map = {
                 "Streets (OpenStreetMap)": "open-street-map",
                 "Light (Carto)":           "carto-positron",
