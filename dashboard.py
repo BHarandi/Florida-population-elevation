@@ -800,6 +800,12 @@ df_area = get_area_df(selected_area, unit_key,
                       min(all_years), max(all_years), selected_bands)
 
 
+# Pre-initialize infra checkbox state so it survives tab switches without resetting.
+for _ln_pre in INFRA_LAYERS:
+    _k_pre = f"infra_{_ln_pre.replace(' ', '_')}"
+    if _k_pre not in st.session_state:
+        st.session_state[_k_pre] = _ln_pre in ("Airports", "Hospitals")
+
 # ── Tabs ──────────────────────────────────────────────────────────────────────
 tab1, tab2, tab3, tab4 = st.tabs(["Distribution", "Map", "Sea Level Rise", "Infrastructure"])
 
@@ -1757,11 +1763,9 @@ with tab4:
             with st.expander(f"**{_grp}**", expanded=_expanded):
                 for _ln in _lnames:
                     _lcfg = INFRA_LAYERS[_ln]
-                    _default = _ln in ("Airports", "Hospitals")
                     _checked = st.checkbox(
                         f"{_lcfg['icon']} {_ln}",
                         key=f"infra_{_ln.replace(' ', '_')}",
-                        value=_default,
                     )
                     if _checked:
                         active_infra_layers.append(_ln)
