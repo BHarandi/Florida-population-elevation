@@ -33,7 +33,8 @@ DATA_PATH  = os.path.join(_BASE, "data", "population_by_elevation.parquet")
 COUNTY_SHP = os.path.join(_BASE, "data", "shp", "counties", "tl_2010_12_county10.shp")
 STATE_SHP  = os.path.join(_BASE, "data", "shp", "state",    "tl_2020_12_state.shp")
 DEM_PATH      = os.path.join(_BASE, "data", "dem_florida_100m.tif")
-WORLDPOP_DIR  = os.path.join(_BASE, "data", "worldpop_wgs84")
+_wp_local     = os.path.join(_BASE, "data", "worldpop_wgs84")
+WORLDPOP_DIR  = _wp_local if os.path.isdir(_wp_local) else r"E:\2026\Datasets\worldpop-data\wgs84"
 
 # ── Infrastructure data paths ──────────────────────────────────────────────────
 # Portable GeoJSON files live in data/infrastructure/ (committed to the repo).
