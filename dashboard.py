@@ -33,11 +33,12 @@ DATA_PATH  = os.path.join(_BASE, "data", "population_by_elevation.parquet")
 COUNTY_SHP = os.path.join(_BASE, "data", "shp", "counties", "tl_2010_12_county10.shp")
 STATE_SHP  = os.path.join(_BASE, "data", "shp", "state",    "tl_2020_12_state.shp")
 DEM_PATH      = os.path.join(_BASE, "data", "dem_florida_100m.tif")
-WORLDPOP_DIR  = os.path.join(_BASE, "data", "worldpop_wgs84")
+_wp_local     = os.path.join(_BASE, "data", "worldpop_wgs84")
+WORLDPOP_DIR  = _wp_local if os.path.isdir(_wp_local) else r"E:\2026\Datasets\worldpop-data\wgs84"
 
 # ── Infrastructure data paths ──────────────────────────────────────────────────
-# Local GeoJSON copies (if present in data/infrastructure/) take priority;
-# otherwise falls back to the full E: drive dataset.
+# Portable GeoJSON files live in data/infrastructure/ (committed to the repo).
+# Large files that didn't fit GitHub fall back to the E: drive dataset when present.
 _INFRA_LOCAL = os.path.join(_BASE, "data", "infrastructure")
 INFRA_ROOT   = r"E:\2026\Datasets\infrastracture"
 _T = os.path.join(INFRA_ROOT, "Transportation and Evacuation Routes")
@@ -755,7 +756,7 @@ use_feet   = _unit == "Feet (ft)"
 unit_key   = "Feet" if use_feet else "Metric"
 band_order  = BAND_ORDER_FT  if use_feet else BAND_ORDER_M
 band_colors = BAND_COLORS_FT if use_feet else BAND_COLORS_M
-unit_label  = "ft above MSL" if use_feet else "m above MSL"
+unit_label  = "elevation above MSL (ft)" if use_feet else "elevation above MSL (m)"
 
 all_years = sorted(df_all["Year"].unique())
 
@@ -906,7 +907,7 @@ with tab2:
             map_use_feet   = map_unit == "Feet (ft)"
             map_band_order  = BAND_ORDER_FT  if map_use_feet else BAND_ORDER_M
             map_band_colors = BAND_COLORS_FT if map_use_feet else BAND_COLORS_M
-            map_unit_label  = "ft above MSL"  if map_use_feet else "m above MSL"
+            map_unit_label  = "elevation above MSL (ft)"  if map_use_feet else "elevation above MSL (m)"
 
             # Reset band selection if unit changed
             if "map_band" in st.session_state and st.session_state["map_band"] not in (["All elevations"] + map_band_order):
@@ -1191,7 +1192,7 @@ with tab2:
                 show_dens        = pd_tog.toggle("Population density",   value=True, key="show_dens_county")
                 pop_dens_style   = _pop_bmap_map[pop_dens_bstyle] if show_dens_bmap else "white-bg"
                 if pop_img_dens is None:
-                    st.info(f"WorldPop raster for {map_year} not found in data/worldpop/.")
+                    st.info(f"WorldPop raster for {map_year} not found in data/worldpop_wgs84/.")
                 else:
                     fig_dens = go.Figure()
                     fig_dens.add_trace(go.Scattermapbox(
@@ -1383,7 +1384,7 @@ with tab2:
                 show_dens_s        = pds_tog.toggle("Population density",   value=True, key="show_dens_state")
                 pop_dens_style_s   = _pop_bmap_map_s[pop_dens_bstyle_s] if show_dens_bmap_s else "white-bg"
                 if pop_img_dens_s is None:
-                    st.info(f"WorldPop raster for {map_year} not found in data/worldpop/.")
+                    st.info(f"WorldPop raster for {map_year} not found in data/worldpop_wgs84/.")
                 else:
                     fig_dens_s = go.Figure()
                     for lons, lats in state_rings:
@@ -1576,12 +1577,12 @@ with tab3:
             slr_m     = slr_ft / 3.28084
             slr_label = f"{slr_ft:.1f} ft"
             slr_band_order = BAND_ORDER_FT
-            slr_unit_label = "ft above MSL"
+            slr_unit_label = "elevation above MSL (ft)"
         else:
             slr_m     = st.slider("Sea level rise (m)", 0.0, 60.0, 0.3, 0.1, key="slr_slider")
             slr_label = f"{slr_m:.1f} m"
             slr_band_order = BAND_ORDER_M
-            slr_unit_label = "m above MSL"
+            slr_unit_label = "elevation above MSL (m)"
 
         # Unit toggle — below the slider
         u_left, u_mid, u_right = st.columns([2, 1, 2])
@@ -1893,6 +1894,18 @@ with tab4:
         elif not active_infra_layers:
             st.info("Select one or more layers from the panel on the right to display them on the map.")
 
+        # Note about optional layers that need local data
+        _missing_optional = [
+            f"{INFRA_LAYERS[_ln]['icon']} {_ln}"
+            for _ln in active_infra_layers
+            if INFRA_LAYERS[_ln].get("optional") and not os.path.exists(INFRA_LAYERS[_ln]["path"])
+        ]
+        if _missing_optional:
+            st.caption(
+                f"⚠ Not available without local data: {', '.join(_missing_optional)}. "
+                "These layers require the E: drive dataset."
+            )
+
     # ── Elevation profile — full-width below map columns ───────────────────────
     # Include ALL active layers (line layers use feature centroids for elevation)
     if active_infra_layers and os.path.exists(DEM_PATH):
@@ -1906,7 +1919,7 @@ with tab4:
         _use_ft     = _unit_sel == "Feet (ft)"
         _e_band_ord = BAND_ORDER_FT  if _use_ft else BAND_ORDER_M
         _e_band_col = BAND_COLORS_FT if _use_ft else BAND_COLORS_M
-        _e_axis_lbl = "ft above MSL" if _use_ft else "m above MSL"
+        _e_axis_lbl = "elevation above MSL (ft)" if _use_ft else "elevation above MSL (m)"
 
         _bbox_tuple = tuple(_cb) if _cb else None
         _elev_rows  = []
