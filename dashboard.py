@@ -1030,7 +1030,8 @@ with tab2:
                         match = df_map[df_map["County_GEOID"] == clicked_geoid]["County_Name"]
                         if not match.empty:
                             clicked_name = match.iloc[0]
-                            if clicked_name in map_county_options:
+                            if (clicked_name in map_county_options and
+                                    clicked_name != st.session_state.get("map_county_sel")):
                                 st.session_state["map_county_sel"] = clicked_name
                                 st.rerun()
 
@@ -1642,7 +1643,7 @@ with tab3:
         ].empty else None
 
         slr_feat = [f for f in fl_geojson["features"]
-                    if f["properties"]["GEOID10"] == slr_geoid] if slr_geoid else []
+                    if f["properties"]["GEOID10"] == slr_geoid] if (slr_geoid and fl_geojson) else []
         if slr_feat:
             slr_geom     = shape(slr_feat[0]["geometry"])
             slr_geom_wkt = slr_geom.wkt
@@ -1802,7 +1803,7 @@ with tab4:
             ]["County_GEOID"]
             _igid = _igid.iloc[0] if not _igid.empty else None
             _ifeats = [f for f in fl_geojson["features"]
-                       if f["properties"]["GEOID10"] == _igid] if _igid else []
+                       if f["properties"]["GEOID10"] == _igid] if (_igid and fl_geojson) else []
             if _ifeats:
                 _igeom = shape(_ifeats[0]["geometry"])
                 _ic = {"lat": _igeom.centroid.y, "lon": _igeom.centroid.x}
