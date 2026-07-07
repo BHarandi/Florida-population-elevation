@@ -338,10 +338,13 @@ def get_dem_overlay(geom_wkt: str, unit_k: str):
     if not os.path.exists(DEM_PATH):
         return None, None, None
 
-    from shapely import wkt as shapely_wkt
-    geom_wgs84 = shapely_wkt.loads(geom_wkt)
-    gdf = gpd.GeoDataFrame(geometry=[geom_wgs84], crs="EPSG:4326").to_crs("EPSG:4269")
-    geom_4269 = gdf.geometry.iloc[0]
+    try:
+        from shapely import wkt as shapely_wkt
+        geom_wgs84 = shapely_wkt.loads(geom_wkt)
+        gdf = gpd.GeoDataFrame(geometry=[geom_wgs84], crs="EPSG:4326").to_crs("EPSG:4269")
+        geom_4269 = gdf.geometry.iloc[0]
+    except Exception:
+        return None, None, None
 
     try:
         with rasterio.open(DEM_PATH) as src:
@@ -461,10 +464,13 @@ def get_flood_overlay(geom_wkt: str, sea_level_m: float):
     if not os.path.exists(DEM_PATH):
         return None, None
 
-    from shapely import wkt as shapely_wkt
-    geom_wgs84 = shapely_wkt.loads(geom_wkt)
-    gdf = gpd.GeoDataFrame(geometry=[geom_wgs84], crs="EPSG:4326").to_crs("EPSG:4269")
-    geom_4269 = gdf.geometry.iloc[0]
+    try:
+        from shapely import wkt as shapely_wkt
+        geom_wgs84 = shapely_wkt.loads(geom_wkt)
+        gdf = gpd.GeoDataFrame(geometry=[geom_wgs84], crs="EPSG:4326").to_crs("EPSG:4269")
+        geom_4269 = gdf.geometry.iloc[0]
+    except Exception:
+        return None, None
 
     try:
         with rasterio.open(DEM_PATH) as src:
@@ -1819,7 +1825,10 @@ with tab4:
             elif _ifeats:
                 _dem_wkt_infra = _igeom.wkt
             if _dem_wkt_infra:
-                _infra_dem_img, _infra_dem_bounds, _ = get_dem_overlay(_dem_wkt_infra, _infra_dem_unit_k)
+                try:
+                    _infra_dem_img, _infra_dem_bounds, _ = get_dem_overlay(_dem_wkt_infra, _infra_dem_unit_k)
+                except Exception:
+                    _infra_dem_img = _infra_dem_bounds = None
 
         fig_infra = go.Figure()
 
