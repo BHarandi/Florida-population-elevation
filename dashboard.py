@@ -549,8 +549,13 @@ def get_pop_overlay(geom_wkt: str, year: int):
     if not os.path.exists(pop_path):
         return None, None, None, None, None, f"File not found: {pop_path}"
 
+    if not geom_wkt:
+        return None, None, None, None, None, "No geometry provided."
     from shapely import wkt as shapely_wkt
-    geom_wgs84 = shapely_wkt.loads(geom_wkt)
+    try:
+        geom_wgs84 = shapely_wkt.loads(geom_wkt)
+    except Exception as e:
+        return None, None, None, None, None, f"Invalid geometry WKT: {e}"
 
     try:
         with rasterio.open(pop_path) as src:
@@ -1374,7 +1379,10 @@ with tab2:
                 "Light (Carto)":           "carto-positron",
                 "Dark (Carto)":            "carto-darkmatter",
             }
-            pop_img_count_s, pop_img_dens_s, pop_bounds_s, pop_hover_s, pop_dens_breaks_s, _pop_err_s = get_pop_overlay(state_wkt, map_year)
+            if state_wkt:
+                pop_img_count_s, pop_img_dens_s, pop_bounds_s, pop_hover_s, pop_dens_breaks_s, _pop_err_s = get_pop_overlay(state_wkt, map_year)
+            else:
+                pop_img_count_s, pop_img_dens_s, pop_bounds_s, pop_hover_s, pop_dens_breaks_s, _pop_err_s = None, None, None, None, None, "State boundary shapefile not found."
 
             with state_col3:
                 st.markdown(f"**Florida — population density ({map_year})**")
