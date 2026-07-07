@@ -1759,6 +1759,7 @@ with tab4:
             "Dark (Carto)":            "carto-darkmatter",
         }
         infra_bmap_style = st.selectbox("Basemap", list(_infra_bmap_opts.keys()), key="infra_bmap")
+        show_infra_dem = st.toggle("Elevation (DEM)", value=True, key="infra_show_dem")
 
         st.markdown("---")
 
@@ -1807,6 +1808,17 @@ with tab4:
                 _cf = infra_area
                 _cb = None
 
+        # DEM overlay for selected area
+        _infra_dem_img = _infra_dem_bounds = None
+        if show_infra_dem and os.path.exists(DEM_PATH):
+            _dem_wkt_infra = None
+            if infra_area == "Florida (Statewide)":
+                _dem_wkt_infra = load_state_geometry_wkt()
+            elif _ifeats:
+                _dem_wkt_infra = _igeom.wkt
+            if _dem_wkt_infra:
+                _infra_dem_img, _infra_dem_bounds, _ = get_dem_overlay(_dem_wkt_infra, "Feet")
+
         fig_infra = go.Figure()
 
         # State boundary outline
@@ -1814,6 +1826,24 @@ with tab4:
             fig_infra.add_trace(go.Scattermapbox(
                 lon=_bl, lat=_bla, mode="lines",
                 line=dict(color="black", width=1),
+                hoverinfo="skip", showlegend=False,
+            ))
+
+        # County boundary highlight (thicker gold outline)
+        if infra_area != "Florida (Statewide)" and _ifeats:
+            if _igeom.geom_type == "MultiPolygon":
+                _cb_lons, _cb_lats = [], []
+                for _poly in _igeom.geoms:
+                    _cc = list(_poly.exterior.coords)
+                    _cb_lons += [c[0] for c in _cc] + [None]
+                    _cb_lats += [c[1] for c in _cc] + [None]
+            else:
+                _cc = list(_igeom.exterior.coords)
+                _cb_lons = [c[0] for c in _cc]
+                _cb_lats = [c[1] for c in _cc]
+            fig_infra.add_trace(go.Scattermapbox(
+                lon=_cb_lons, lat=_cb_lats, mode="lines",
+                line=dict(color="gold", width=3),
                 hoverinfo="skip", showlegend=False,
             ))
 
@@ -1890,11 +1920,23 @@ with tab4:
                 ))
                 _summary_rows.append({"Layer": f"{_lcfg['icon']} {_ln}", "Features": len(_pts)})
 
+        _infra_mapbox_layers = []
+        if _infra_dem_img is not None:
+            _dw, _ds, _de, _dn = _infra_dem_bounds
+            _infra_mapbox_layers = [{
+                "sourcetype": "image",
+                "source": _infra_dem_img,
+                "coordinates": [[_dw, _dn], [_de, _dn], [_de, _ds], [_dw, _ds]],
+                "opacity": 0.65,
+                "below": "traces",
+            }]
+
         fig_infra.update_layout(
             mapbox=dict(
                 style=_infra_bmap_opts[infra_bmap_style],
                 zoom=_iz,
                 center=_ic,
+                layers=_infra_mapbox_layers,
             ),
             height=680,
             margin={"r": 0, "t": 10, "l": 0, "b": 0},
@@ -1915,6 +1957,9 @@ with tab4:
             )
         elif not active_infra_layers:
             st.info("Select one or more layers from the panel on the right to display them on the map.")
+
+        if _infra_dem_img is not None:
+            st.markdown(_dem_legend_html("Feet"), unsafe_allow_html=True)
 
         # Note about optional layers that need local data
         _missing_optional = [
