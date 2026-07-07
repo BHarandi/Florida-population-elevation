@@ -249,10 +249,10 @@ def load_infra_layer(path: str, simplify_tol: float = 0.0):
 
 
 @st.cache_data(show_spinner="Sampling DEM for elevation profile…")
-def _infra_elev_bands(path: str, simplify_tol: float, county_attr, county_bbox):
+def _infra_elev_bands(path: str, simplify_tol: float, county_wkt, county_bbox):
     """
-    Load an infrastructure layer, filter by county, sample the DEM at each point
-    centroid, and return a DataFrame with columns [_band (metric), _elev_m].
+    Load an infrastructure layer, clip to county polygon, sample the DEM at each
+    point centroid, and return a DataFrame with columns [_band (metric), _elev_m].
     """
     if not path or not os.path.exists(path):
         return None
@@ -267,16 +267,14 @@ def _infra_elev_bands(path: str, simplify_tol: float, county_attr, county_bbox):
     except Exception:
         return None
 
-    # County filter
-    if county_attr:
-        filtered = gdf.copy()
-        for col in ["COUNTY", "County", "COUNTY_NAM"]:
-            if col in filtered.columns:
-                filtered = filtered[filtered[col].str.strip().str.lower() == county_attr.lower()]
-                break
-        if filtered.empty and county_bbox:
-            filtered = gdf.cx[county_bbox[0]:county_bbox[2], county_bbox[1]:county_bbox[3]]
-        gdf = filtered
+    # County clip
+    if county_wkt:
+        try:
+            from shapely import wkt as _swkt
+            gdf = gpd.clip(gdf, _swkt.loads(county_wkt))
+        except Exception:
+            if county_bbox:
+                gdf = gdf.cx[county_bbox[0]:county_bbox[2], county_bbox[1]:county_bbox[3]]
     if gdf.empty:
         return None
 
@@ -1791,6 +1789,7 @@ with tab4:
             _iz = 5.5
             _cf = None
             _cb = None
+            _ifeats = []
         else:
             _igid = df_all[
                 (df_all["Scope"] == "County") & (df_all["County_Name"] == infra_area)
@@ -1864,14 +1863,15 @@ with tab4:
             if _gdf.empty:
                 continue
 
-            # County filter — try attribute column first, then bbox
+            # County filter — clip to exact county polygon, fall back to bbox
             _fgdf = _gdf
             if _cf:
-                for _col in ["COUNTY", "County", "COUNTY_NAM"]:
-                    if _col in _fgdf.columns:
-                        _fgdf = _fgdf[_fgdf[_col].str.strip().str.lower() == _cf.lower()]
-                        break
-                if _fgdf.empty and _cb:
+                if _ifeats:
+                    try:
+                        _fgdf = gpd.clip(_gdf, _igeom)
+                    except Exception:
+                        _fgdf = _gdf.cx[_cb[0]:_cb[2], _cb[1]:_cb[3]] if _cb else _gdf
+                elif _cb:
                     _fgdf = _gdf.cx[_cb[0]:_cb[2], _cb[1]:_cb[3]]
 
             if _fgdf.empty:
@@ -1992,12 +1992,13 @@ with tab4:
         _e_axis_lbl = "elevation above MSL (ft)" if _use_ft else "elevation above MSL (m)"
 
         _bbox_tuple = tuple(_cb) if _cb else None
+        _county_wkt_elev = _igeom.wkt if _ifeats else None
         _elev_rows  = []
 
         for _ln in active_infra_layers:
             _lcfg = INFRA_LAYERS[_ln]
             _edf  = _infra_elev_bands(_resolve_layer_path(_lcfg), _lcfg.get("simplify", 0.0),
-                                      _cf, _bbox_tuple)
+                                      _county_wkt_elev, _bbox_tuple)
             if _edf is None or _edf.empty:
                 continue
             _edf = _edf.copy()
