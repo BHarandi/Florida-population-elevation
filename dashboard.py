@@ -544,10 +544,10 @@ _LOG_DENS_MAX  = np.log1p(100_000.0)  # matching density ceiling
 
 @st.cache_data(show_spinner="Loading population map …")
 def get_pop_overlay(geom_wkt: str, year: int):
-    """Clip WorldPop raster to geometry; return count image, density image, bounds, hover."""
+    """Clip WorldPop raster to geometry; return count image, density image, bounds, hover, error."""
     pop_path = os.path.join(WORLDPOP_DIR, f"pop_{year}_florida.tif")
     if not os.path.exists(pop_path):
-        return None, None, None, None, None
+        return None, None, None, None, None, f"File not found: {pop_path}"
 
     from shapely import wkt as shapely_wkt
     geom_wgs84 = shapely_wkt.loads(geom_wkt)
@@ -558,14 +558,14 @@ def get_pop_overlay(geom_wkt: str, year: int):
             out_image, out_transform = rio_mask(
                 src, [geom_wgs84.__geo_interface__], crop=True, filled=False,
             )
-    except Exception:
-        return None, None, None, None, None
+    except Exception as e:
+        return None, None, None, None, None, f"Raster processing error: {e}"
 
     from rasterio.features import geometry_mask
     pop_ma = out_image[0]
     h, w = pop_ma.shape
     if h == 0 or w == 0:
-        return None, None, None, None, None
+        return None, None, None, None, None, "Empty crop — geometry may not overlap raster extent."
 
     poly_outside = geometry_mask(
         [geom_wgs84.__geo_interface__],
@@ -652,7 +652,7 @@ def get_pop_overlay(geom_wkt: str, year: int):
         ],
     }
 
-    return None, data_uri_dens, [west, south, east, north], hover, dens_breaks
+    return None, data_uri_dens, [west, south, east, north], hover, dens_breaks, None
 
 
 def _pop_legend_html(breaks: list) -> str:
@@ -1178,7 +1178,7 @@ with tab2:
                     st.warning("DEM file not found — outline only.")
 
             # ── Right column: population density map (yellow→red) ────────────
-            pop_img_count, pop_img_dens, pop_bounds, pop_hover, pop_dens_breaks = get_pop_overlay(geom.wkt, map_year)
+            pop_img_count, pop_img_dens, pop_bounds, pop_hover, pop_dens_breaks, _pop_err = get_pop_overlay(geom.wkt, map_year)
             _pop_bmap_map = {
                 "Streets (OpenStreetMap)": "open-street-map",
                 "Light (Carto)":           "carto-positron",
@@ -1192,7 +1192,7 @@ with tab2:
                 show_dens        = pd_tog.toggle("Population density",   value=True, key="show_dens_county")
                 pop_dens_style   = _pop_bmap_map[pop_dens_bstyle] if show_dens_bmap else "white-bg"
                 if pop_img_dens is None:
-                    st.info(f"WorldPop raster for {map_year} not found in data/worldpop_wgs84/.")
+                    st.info(_pop_err or f"WorldPop raster for {map_year} not available.")
                 else:
                     fig_dens = go.Figure()
                     fig_dens.add_trace(go.Scattermapbox(
@@ -1374,7 +1374,7 @@ with tab2:
                 "Light (Carto)":           "carto-positron",
                 "Dark (Carto)":            "carto-darkmatter",
             }
-            pop_img_count_s, pop_img_dens_s, pop_bounds_s, pop_hover_s, pop_dens_breaks_s = get_pop_overlay(state_wkt, map_year)
+            pop_img_count_s, pop_img_dens_s, pop_bounds_s, pop_hover_s, pop_dens_breaks_s, _pop_err_s = get_pop_overlay(state_wkt, map_year)
 
             with state_col3:
                 st.markdown(f"**Florida — population density ({map_year})**")
@@ -1384,7 +1384,7 @@ with tab2:
                 show_dens_s        = pds_tog.toggle("Population density",   value=True, key="show_dens_state")
                 pop_dens_style_s   = _pop_bmap_map_s[pop_dens_bstyle_s] if show_dens_bmap_s else "white-bg"
                 if pop_img_dens_s is None:
-                    st.info(f"WorldPop raster for {map_year} not found in data/worldpop_wgs84/.")
+                    st.info(_pop_err_s or f"WorldPop raster for {map_year} not available.")
                 else:
                     fig_dens_s = go.Figure()
                     for lons, lats in state_rings:
