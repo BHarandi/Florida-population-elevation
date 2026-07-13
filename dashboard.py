@@ -86,9 +86,14 @@ INFRA_LAYERS = {
         "local": "Bus Terminals.geojson",
         "color": "#d62728", "group": "Transportation", "icon": "🚌",
     },
-    "Rail Facilities": {
-        "local": "Rail Facilities.geojson",
+    "Rail Facilities (Lines)": {
+        "local": "Rail Facilities (PL).geojson",
         "color": "#7f7f7f", "group": "Transportation", "icon": "🏭",
+        "is_line": True,
+    },
+    "Rail Facilities (Points)": {
+        "local": "Rail Facilities (PT).geojson",
+        "color": "#595959", "group": "Transportation", "icon": "🏭",
     },
 }
 
@@ -737,7 +742,7 @@ for _ln_pre in INFRA_LAYERS:
         st.session_state[_k_pre] = _ln_pre in ("Airports",)
 
 # ── Tabs ──────────────────────────────────────────────────────────────────────
-tab1, tab2, tab3, tab4 = st.tabs(["Distribution", "Map", "Sea Level Rise", "Infrastructure"])
+tab1, tab2, tab3, tab4 = st.tabs(["Distribution", "Map", "Sea Level Rise", "FEMA Lifeline"])
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -1685,11 +1690,16 @@ with tab4:
     with infra_ctrl_col:
         infra_area = st.selectbox("County / Statewide", county_options, key="infra_area")
         _infra_bmap_opts = {
-            "Light (Carto)":           "carto-positron",
             "Streets (OpenStreetMap)": "open-street-map",
+            "Light (Carto)":           "carto-positron",
             "Dark (Carto)":            "carto-darkmatter",
         }
-        infra_bmap_style = st.selectbox("Basemap", list(_infra_bmap_opts.keys()), key="infra_bmap")
+        _infra_bmap_keys = list(_infra_bmap_opts.keys())
+        _infra_bmap_default = _infra_bmap_keys.index("Streets (OpenStreetMap)")
+        infra_bmap_style = st.selectbox(
+            "Basemap", _infra_bmap_keys,
+            index=_infra_bmap_default, key="infra_bmap",
+        )
         show_infra_dem = st.toggle("Elevation (DEM)", value=True, key="infra_show_dem")
         infra_dem_unit = st.radio("DEM unit", ["Feet (ft)", "Metric (m)"],
                                   horizontal=True, key="infra_dem_unit")
@@ -1918,11 +1928,7 @@ with tab4:
         st.markdown("---")
         st.subheader("Features by Elevation Band")
 
-        _unit_sel = st.radio(
-            "Unit", ["Meters (m)", "Feet (ft)"],
-            horizontal=True, key="infra_elev_unit",
-        )
-        _use_ft     = _unit_sel == "Feet (ft)"
+        _use_ft     = _infra_dem_unit_k == "Feet"
         _e_band_ord = BAND_ORDER_FT  if _use_ft else BAND_ORDER_M
         _e_band_col = BAND_COLORS_FT if _use_ft else BAND_COLORS_M
         _e_axis_lbl = "elevation above MSL (ft)" if _use_ft else "elevation above MSL (m)"
