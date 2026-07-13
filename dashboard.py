@@ -37,17 +37,14 @@ _wp_local     = os.path.join(_BASE, "data", "worldpop_wgs84")
 WORLDPOP_DIR  = _wp_local if os.path.isdir(_wp_local) else r"E:\2026\Datasets\worldpop-data\wgs84"
 
 # ── Infrastructure data paths ──────────────────────────────────────────────────
-# Portable GeoJSON files live in data/infrastructure/ (committed to the repo).
-# Large files that didn't fit GitHub fall back to the E: drive dataset when present.
-_INFRA_LOCAL = os.path.join(_BASE, "data", "infrastructure")
-INFRA_ROOT   = r"E:\2026\Datasets\infrastracture"
-_T = os.path.join(INFRA_ROOT, "Transportation and Evacuation Routes")
-_C = os.path.join(INFRA_ROOT, "Critical Community and Emergency Facilities")
-_I = os.path.join(INFRA_ROOT, "Critical Infrastructure")
+# GeoJSON files live in data/infrastructure/Transportation/ (committed to repo).
+# Falls back to local F: drive Final Data folder when not found in repo.
+_INFRA_LOCAL = os.path.join(_BASE, "data", "Transportation")
+_FINAL_DATA  = r"F:\2026\Datasets\infrastracture\Final Data\Transportation"
 
 
 def _resolve_layer_path(lcfg: dict) -> str:
-    """Resolve path at call time: prefer repo-local GeoJSON, fall back to E: drive."""
+    """Resolve path at call time: prefer repo-local GeoJSON, fall back to F: drive."""
     local = lcfg.get("local", "")
     if local:
         p = os.path.join(_INFRA_LOCAL, local)
@@ -59,110 +56,46 @@ def _resolve_layer_path(lcfg: dict) -> str:
 INFRA_LAYERS = {
     "Airports": {
         "local": "Airports.geojson",
-        "path":  os.path.join(_T, "Airports", "Transportation_and_Evacuation_Routes_2_1194168659848709615", "Airports.shp"),
+        "path":  os.path.join(_FINAL_DATA, "Airports.geojson"),
         "color": "#1f77b4", "group": "Transportation", "icon": "✈",
     },
     "Bridges": {
         "local": "Bridges.geojson",
-        "path":  os.path.join(_T, "Bridges", "Transportation_and_Evacuation_Routes_2_-3049094698008970566", "Bridges.shp"),
+        "path":  os.path.join(_FINAL_DATA, "Bridges.geojson"),
         "color": "#ff7f0e", "group": "Transportation", "icon": "🌉",
         "is_line": True,
     },
     "Marinas": {
         "local": "Marinas.geojson",
-        "path":  os.path.join(_T, "Marinas", "Transportation_and_Evacuation_Routes_2_7699387341005298133", "Marinas.shp"),
+        "path":  os.path.join(_FINAL_DATA, "Marinas.geojson"),
         "color": "#9467bd", "group": "Transportation", "icon": "⚓",
     },
     "Ports": {
         "local": "Ports.geojson",
-        "path":  os.path.join(_T, "Ports - PT", "Transportation_and_Evacuation_Routes_2_-5243994656539743605.geojson"),
+        "path":  os.path.join(_FINAL_DATA, "Ports.geojson"),
         "color": "#8c564b", "group": "Transportation", "icon": "🚢",
     },
-    "Major Roads": {
-        "local":   "Major_Roads.geojson",
-        "path":    os.path.join(_T, "Major Roadways - FDOT", "Transportation_and_Evacuation_Routes_2_5348635758994616946", "Major_Roadways_-_FDOT.shp"),
-        "color":   "#e377c2", "group": "Transportation", "icon": "🛣",
+    "Railway": {
+        "local": "Railway.geojson",
+        "path":  os.path.join(_FINAL_DATA, "Railway.geojson"),
+        "color": "#2ca02c", "group": "Transportation", "icon": "🚂",
+        "is_line": True,
+    },
+    "Bus Terminals": {
+        "local": "Bus Terminals.geojson",
+        "path":  os.path.join(_FINAL_DATA, "Bus Terminals.geojson"),
+        "color": "#d62728", "group": "Transportation", "icon": "🚌",
+    },
+    "Rail Facilities": {
+        "local": "Rail Facilities.geojson",
+        "path":  os.path.join(_FINAL_DATA, "Rail Facilities.geojson"),
+        "color": "#7f7f7f", "group": "Transportation", "icon": "🏭",
+    },
+    "Roadways": {
+        "local": "Roadways.geojson",
+        "path":  os.path.join(_FINAL_DATA, "Roadways.geojson"),
+        "color": "#e377c2", "group": "Transportation", "icon": "🛣",
         "is_line": True, "simplify": 0.005,
-    },
-    "Hospitals": {
-        "local": "Hospitals.geojson",
-        "path":  os.path.join(_C, "Hospitals", "Critical_Community_and_Emergency_Facilities_2_1792414469893767926", "Hospitals.shp"),
-        "color": "#d62728", "group": "Emergency Facilities", "icon": "🏥",
-    },
-    "Health Care": {
-        "local": "Health_Care.geojson",
-        "path":  os.path.join(_C, "Health Care Facilities", "Critical_Community_and_Emergency_Facilities_2_3516896239554222129", "Health_Care_Facilities.shp"),
-        "color": "#e7969c", "group": "Emergency Facilities", "icon": "⚕",
-    },
-    "Schools": {
-        "local": "Schools.geojson",
-        "path":  os.path.join(_C, "Schools", "Critical_Community_and_Emergency_Facilities_2_-5027662022404104295", "Schools.shp"),
-        "color": "#17becf", "group": "Emergency Facilities", "icon": "🏫",
-    },
-    "Fire Stations": {
-        "local": "Fire_Stations.geojson",
-        "path":  os.path.join(_C, "Fire Stations", "Critical_Community_and_Emergency_Facilities_2_-1047806458352401644", "Fire_Stations.shp"),
-        "color": "#ff0000", "group": "Emergency Facilities", "icon": "🚒",
-    },
-    "EMS Facilities": {
-        "local": "EMS.geojson",
-        "path":  os.path.join(_C, "Emergency Medical Service Facilities", "Critical_Community_and_Emergency_Facilities_2_4498557151273359554", "Emergency_Medical_Service_Facilities.shp"),
-        "color": "#2ca02c", "group": "Emergency Facilities", "icon": "🚑",
-    },
-    "Law Enforcement": {
-        "local": "Law_Enforcement.geojson",
-        "path":  os.path.join(_C, "Law Enforcement Facilities", "Critical_Community_and_Emergency_Facilities_2_4401688805576930661", "Law_Enforcement_Facilities.shp"),
-        "color": "#1a9850", "group": "Emergency Facilities", "icon": "🚔",
-    },
-    "Risk Shelters": {
-        "local": "Risk_Shelters.geojson",
-        "path":  os.path.join(_C, "Risk Shelter Inventory", "Critical_Community_and_Emergency_Facilities_2_-1943562129689500394", "Risk_Shelter_Inventory.shp"),
-        "color": "#aec7e8", "group": "Emergency Facilities", "icon": "🏠",
-    },
-    "Emergency Ops": {
-        "local": "Emergency_Ops.geojson",
-        "path":  os.path.join(_C, "Emergency Operation Centers", "Critical_Community_and_Emergency_Facilities_2_821146408615340654.geojson"),
-        "color": "#ffbb78", "group": "Emergency Facilities", "icon": "📟",
-    },
-    "Logistical Staging": {
-        "local": "Logistical_Staging.geojson",
-        "path":  os.path.join(_C, "Logistical Staging Areas", "Critical_Community_and_Emergency_Facilities_2_-5578331856732885395.geojson"),
-        "color": "#9edae5", "group": "Emergency Facilities", "icon": "🏗",
-    },
-    "Correctional": {
-        "local": "Correctional.geojson",
-        "path":  os.path.join(_C, "Correctional Facilities", "Critical_Community_and_Emergency_Facilities_2_6939651817516893249.geojson"),
-        "color": "#c7c7c7", "group": "Emergency Facilities", "icon": "🔒",
-    },
-    "Disaster Recovery": {
-        "local": "Disaster_Recovery.geojson",
-        "path":  os.path.join(_C, "Disaster Recovery Centers", "Critical_Community_and_Emergency_Facilities_2_8157404733337029249.geojson"),
-        "color": "#f7b6d2", "group": "Emergency Facilities", "icon": "🔧",
-    },
-    "Electric Power": {
-        "local": "Electric_Power.geojson",
-        "path":  os.path.join(_I, "Electric Production and Supply Facilities - PT", "Critical_Infrastructure_2_-7715989192034689186", "Electric_Production_and_Supply_Facilities_-_PT.shp"),
-        "color": "#ffd700", "group": "Critical Infrastructure", "icon": "⚡",
-    },
-    "Communications": {
-        "local": "Communications.geojson",
-        "path":  os.path.join(_I, "Communications Facilities", "Critical_Infrastructure_2_-2530005311678924858", "Communications_Facilities.shp"),
-        "color": "#7f7f7f", "group": "Critical Infrastructure", "icon": "📡",
-    },
-    "Wastewater": {
-        "local": "Wastewater.geojson",
-        "path":  os.path.join(_I, "Wastewater Treatment Facilities and Lift Stations", "Critical_Infrastructure_2_-6384592852190066085", "Wastewater_Treatment_Facilities_and_Lift_Stations.shp"),
-        "color": "#bcbd22", "group": "Critical Infrastructure", "icon": "💧",
-    },
-    "Stormwater": {
-        "local": "Stormwater.geojson",
-        "path":  os.path.join(_I, "Stormwater Treatment Facilities and Pump Stations - PT", "Critical_Infrastructure_2_-1542211587000766307", "Stormwater_Treatment_Facilities_and_Pump_Stations_-_PT.shp"),
-        "color": "#6b6ecf", "group": "Critical Infrastructure", "icon": "🌊",
-    },
-    "Solid Waste": {
-        "local": "Solid_Waste_TSD.geojson",
-        "path":  os.path.join(_I, "Solid and Hazardous Waste Facilities - TSD", "Critical_Infrastructure_2_9105319738231184869.geojson"),
-        "color": "#8c6d31", "group": "Critical Infrastructure", "icon": "☣",
     },
 }
 
@@ -808,7 +741,7 @@ df_area = get_area_df(selected_area, unit_key,
 for _ln_pre in INFRA_LAYERS:
     _k_pre = f"infra_{_ln_pre.replace(' ', '_')}"
     if _k_pre not in st.session_state:
-        st.session_state[_k_pre] = _ln_pre in ("Airports", "Hospitals")
+        st.session_state[_k_pre] = _ln_pre in ("Airports",)
 
 # ── Tabs ──────────────────────────────────────────────────────────────────────
 tab1, tab2, tab3, tab4 = st.tabs(["Distribution", "Map", "Sea Level Rise", "Infrastructure"])
