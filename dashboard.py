@@ -37,65 +37,58 @@ _wp_local     = os.path.join(_BASE, "data", "worldpop_wgs84")
 WORLDPOP_DIR  = _wp_local if os.path.isdir(_wp_local) else r"E:\2026\Datasets\worldpop-data\wgs84"
 
 # ── Infrastructure data paths ──────────────────────────────────────────────────
-# GeoJSON files live in data/infrastructure/Transportation/ (committed to repo).
-# Falls back to local F: drive Final Data folder when not found in repo.
+# Primary source: GitHub raw URLs (public — works for everyone).
+# Falls back to local copy in data/Transportation/ if present (faster for dev),
+# then to F: drive Final Data folder.
+_GITHUB_BASE = "https://raw.githubusercontent.com/BHarandi/Florida-population-elevation/main/data/Transportation"
 _INFRA_LOCAL = os.path.join(_BASE, "data", "Transportation")
 _FINAL_DATA  = r"F:\2026\Datasets\infrastracture\Final Data\Transportation"
 
 
 def _resolve_layer_path(lcfg: dict) -> str:
-    """Resolve path at call time: prefer repo-local GeoJSON, fall back to F: drive."""
+    """Prefer local copy (fast), else GitHub raw URL (public access)."""
     local = lcfg.get("local", "")
     if local:
         p = os.path.join(_INFRA_LOCAL, local)
         if os.path.exists(p):
             return p
-    return lcfg.get("path", "")
+        f = os.path.join(_FINAL_DATA, local)
+        if os.path.exists(f):
+            return f
+        return f"{_GITHUB_BASE}/{local}"
+    return ""
 
 
 INFRA_LAYERS = {
     "Airports": {
         "local": "Airports.geojson",
-        "path":  os.path.join(_FINAL_DATA, "Airports.geojson"),
         "color": "#1f77b4", "group": "Transportation", "icon": "✈",
     },
     "Bridges": {
         "local": "Bridges.geojson",
-        "path":  os.path.join(_FINAL_DATA, "Bridges.geojson"),
         "color": "#ff7f0e", "group": "Transportation", "icon": "🌉",
         "is_line": True,
     },
     "Marinas": {
         "local": "Marinas.geojson",
-        "path":  os.path.join(_FINAL_DATA, "Marinas.geojson"),
         "color": "#9467bd", "group": "Transportation", "icon": "⚓",
     },
     "Ports": {
         "local": "Ports.geojson",
-        "path":  os.path.join(_FINAL_DATA, "Ports.geojson"),
         "color": "#8c564b", "group": "Transportation", "icon": "🚢",
     },
     "Railway": {
         "local": "Railway.geojson",
-        "path":  os.path.join(_FINAL_DATA, "Railway.geojson"),
         "color": "#2ca02c", "group": "Transportation", "icon": "🚂",
         "is_line": True,
     },
     "Bus Terminals": {
         "local": "Bus Terminals.geojson",
-        "path":  os.path.join(_FINAL_DATA, "Bus Terminals.geojson"),
         "color": "#d62728", "group": "Transportation", "icon": "🚌",
     },
     "Rail Facilities": {
         "local": "Rail Facilities.geojson",
-        "path":  os.path.join(_FINAL_DATA, "Rail Facilities.geojson"),
         "color": "#7f7f7f", "group": "Transportation", "icon": "🏭",
-    },
-    "Roadways": {
-        "local": "Roadways.geojson",
-        "path":  os.path.join(_FINAL_DATA, "Roadways.geojson"),
-        "color": "#e377c2", "group": "Transportation", "icon": "🛣",
-        "is_line": True, "simplify": 0.005,
     },
 }
 
