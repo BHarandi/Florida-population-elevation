@@ -64,6 +64,11 @@ INFRA_LAYERS = {
         "local": "Airports.geojson",
         "color": "#1f77b4", "group": "Transportation", "icon": "✈",
     },
+    "Roadways": {
+        "local": "Roadways.geojson",
+        "color": "#e377c2", "group": "Transportation", "icon": "🛣️",
+        "is_line": True,
+    },
     "Bridges": {
         "local": "Bridges.geojson",
         "color": "#ff7f0e", "group": "Transportation", "icon": "🌉",
