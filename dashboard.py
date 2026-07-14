@@ -62,8 +62,7 @@ def _resolve_layer_path(lcfg: dict) -> str:
 INFRA_LAYERS = {
     "Airports": {
         "local": "Airports.geojson",
-        "color": "#1f77b4", "group": "Transportation", 
-        
+        "color": "#1f77b4", "group": "Transportation", "icon": "✈",
     },
     "Roadways": {
         "local": "Roadways.geojson",
