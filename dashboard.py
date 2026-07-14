@@ -62,43 +62,43 @@ def _resolve_layer_path(lcfg: dict) -> str:
 INFRA_LAYERS = {
     "Airports": {
         "local": "Airports.geojson",
-        "color": "#1f77b4", "group": "Transportation", "icon": "✈",
+        "color": "#1f77b4", "group": "Transportation",
     },
     "Roadways": {
         "local": "Roadways.geojson",
-        "color": "#e377c2", "group": "Transportation", "icon": "🛣️",
+        "color": "#e377c2", "group": "Transportation",
         "is_line": True,
     },
     "Bridges": {
         "local": "Bridges.geojson",
-        "color": "#ff7f0e", "group": "Transportation", "icon": "🌉",
+        "color": "#ff7f0e", "group": "Transportation",
         "is_line": True,
     },
     "Marinas": {
         "local": "Marinas.geojson",
-        "color": "#9467bd", "group": "Transportation", "icon": "⚓",
+        "color": "#9467bd", "group": "Transportation",
     },
     "Ports": {
         "local": "Ports.geojson",
-        "color": "#8c564b", "group": "Transportation", "icon": "🚢",
+        "color": "#8c564b", "group": "Transportation",
     },
     "Railway": {
         "local": "Railway.geojson",
-        "color": "#2ca02c", "group": "Transportation", "icon": "🚂",
+        "color": "#2ca02c", "group": "Transportation",
         "is_line": True,
     },
     "Bus Terminals": {
         "local": "Bus Terminals.geojson",
-        "color": "#d62728", "group": "Transportation", "icon": "🚌",
+        "color": "#d62728", "group": "Transportation",
     },
     "Rail Facilities (Lines)": {
         "local": "Rail Facilities (PL).geojson",
-        "color": "#7f7f7f", "group": "Transportation", "icon": "🏭",
+        "color": "#7f7f7f", "group": "Transportation",
         "is_line": True,
     },
     "Rail Facilities (Points)": {
         "local": "Rail Facilities (PT).geojson",
-        "color": "#595959", "group": "Transportation", "icon": "🏭",
+        "color": "#595959", "group": "Transportation",
     },
 }
 
@@ -1724,7 +1724,7 @@ with tab4:
                 for _ln in _lnames:
                     _lcfg = INFRA_LAYERS[_ln]
                     _checked = st.checkbox(
-                        f"{_lcfg['icon']} {_ln}",
+                        _ln,
                         key=f"infra_{_ln.replace(' ', '_')}",
                     )
                     if _checked:
@@ -1826,7 +1826,7 @@ with tab4:
                     _fgdf = _gdf.cx[_cb[0]:_cb[2], _cb[1]:_cb[3]]
 
             if _fgdf.empty:
-                _summary_rows.append({"Layer": f"{_lcfg['icon']} {_ln}", "Features": 0})
+                _summary_rows.append({"Layer": _ln, "Features": 0})
                 continue
 
             if _lcfg.get("is_line"):
@@ -1847,10 +1847,10 @@ with tab4:
                     fig_infra.add_trace(go.Scattermapbox(
                         lon=_all_lons, lat=_all_lats, mode="lines",
                         line=dict(color=_lcfg["color"], width=1.5),
-                        name=f"{_lcfg['icon']} {_ln}",
+                        name=_ln,
                         showlegend=True, hoverinfo="skip",
                     ))
-                _summary_rows.append({"Layer": f"{_lcfg['icon']} {_ln}", "Features": len(_fgdf)})
+                _summary_rows.append({"Layer": _ln, "Features": len(_fgdf)})
 
             else:
                 # Point / polygon → use centroid for marker position
@@ -1869,10 +1869,10 @@ with tab4:
                     marker=dict(size=8, color=_lcfg["color"], opacity=0.85),
                     text=_htexts,
                     hovertemplate="%{text}<extra></extra>",
-                    name=f"{_lcfg['icon']} {_ln}",
+                    name=_ln,
                     showlegend=True,
                 ))
-                _summary_rows.append({"Layer": f"{_lcfg['icon']} {_ln}", "Features": len(_pts)})
+                _summary_rows.append({"Layer": _ln, "Features": len(_pts)})
 
         _infra_mapbox_layers = []
         if _infra_dem_img is not None:
@@ -1917,7 +1917,7 @@ with tab4:
 
         # Note about optional layers that need local data
         _missing_optional = [
-            f"{INFRA_LAYERS[_ln]['icon']} {_ln}"
+            _ln
             for _ln in active_infra_layers
             if INFRA_LAYERS[_ln].get("optional") and not os.path.exists(INFRA_LAYERS[_ln]["path"])
         ]
@@ -1951,9 +1951,8 @@ with tab4:
             _edf = _edf.copy()
             if _use_ft:
                 _edf["_band"] = _edf["_band"].map(BAND_MAP_M_TO_FT)
-            _label = f"{_lcfg['icon']} {_ln}"
             for _bnd, _cnt in _edf["_band"].value_counts().items():
-                _elev_rows.append({"Layer": _label, "Elev_Band": _bnd,
+                _elev_rows.append({"Layer": _ln, "Elev_Band": _bnd,
                                    "Count": int(_cnt), "_color": _lcfg["color"]})
 
         if _elev_rows:
