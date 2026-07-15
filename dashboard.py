@@ -2147,7 +2147,7 @@ with tab5:
                 key="fin_months",
             )
 
-            # Kind Code — use most recent name per code
+            # Kind Code — single select
             kc_ref = (
                 fin_df.sort_values("date")
                 .drop_duplicates(subset=["kind_code"], keep="last")
@@ -2157,18 +2157,17 @@ with tab5:
             kc_options = [
                 f"{int(r.kind_code)} — {r.kind_name}" for _, r in kc_ref.iterrows()
             ]
-            kc_default = [k for k in kc_options if k.startswith("111 ")]
-            fin_kc_sel = st.multiselect(
-                "Kind Code (business type)", kc_options,
-                default=kc_default, key="fin_kc",
+            _kc_default_idx = next(
+                (i + 1 for i, k in enumerate(kc_options) if k.startswith("111 ")), 0
             )
-            selected_kcs = [int(k.split(" — ")[0]) for k in fin_kc_sel] if fin_kc_sel else []
-
-            fin_log_scale = st.toggle(
-                "Log scale (Y axis)",
-                value=False,
-                key="fin_log_scale",
-                help="Use log scale when kind codes have very different sales volumes — prevents small lines from appearing flat at $0.",
+            fin_kc_sel = st.selectbox(
+                "Kind Code (business type)",
+                ["All Kind Codes"] + kc_options,
+                index=_kc_default_idx,
+                key="fin_kc",
+            )
+            selected_kc = (
+                int(fin_kc_sel.split(" — ")[0]) if fin_kc_sel != "All Kind Codes" else None
             )
 
             fin_line_color = "#9d174d"  # dark pink, matches map palette
@@ -2179,10 +2178,14 @@ with tab5:
             map_df = map_df[map_df["year"] == int(fin_year)]
         if fin_months:
             map_df = map_df[map_df["month"].isin([MONTH_NUM[m] for m in fin_months])]
-        if selected_kcs:
-            map_df = map_df[map_df["kind_code"].isin(selected_kcs)]
+        if selected_kc is not None:
+            map_df = map_df[map_df["kind_code"] == selected_kc]
 
         county_sales = map_df.groupby("county", as_index=False)["gross_sales"].sum()
+
+        # When a specific county is selected, show only that county on the map
+        if fin_area != "Florida (Statewide)":
+            county_sales = county_sales[county_sales["county"] == fin_area]
 
         # Join to GEOID10 for choropleth
         if county_meta is not None:
@@ -2195,10 +2198,7 @@ with tab5:
 
         yr_lbl  = str(fin_year)
         mo_lbl  = ", ".join(fin_months) if fin_months else "All Months"
-        kc_lbl  = (
-            ", ".join(fin_kc_sel[:2]) + ("…" if len(fin_kc_sel) > 2 else "")
-            if fin_kc_sel else "All Kind Codes"
-        )
+        kc_lbl  = fin_kc_sel
 
         with fin_map_col:
             if county_sales.empty or "GEOID" not in county_sales.columns:
@@ -2238,26 +2238,7 @@ with tab5:
                         showlegend=False, hoverinfo="skip",
                         name=f"_fin_boundary_{_i}",
                     )
-                # Highlight selected county with a gold border
-                if fin_area != "Florida (Statewide)" and county_meta is not None:
-                    _name_geoid_fin = dict(zip(county_meta["NAME10"], county_meta["GEOID10"]))
-                    _sel_geoid = _name_geoid_fin.get(fin_area, "")
-                    if not _sel_geoid:
-                        # fallback: look inside county_sales already matched
-                        _match = county_sales[county_sales["county"] == fin_area]["GEOID"]
-                        _sel_geoid = _match.iloc[0] if not _match.empty else ""
-                    if _sel_geoid:
-                        fig_fin.add_choropleth(
-                            geojson=fl_geojson,
-                            locations=[_sel_geoid],
-                            featureidkey="properties.GEOID10",
-                            z=[1],
-                            colorscale=[[0, "rgba(0,0,0,0)"], [1, "rgba(0,0,0,0)"]],
-                            showscale=False,
-                            marker=dict(line=dict(color="gold", width=4)),
-                            hoverinfo="skip",
-                            name="_sel",
-                        )
+
 
                 fig_fin.update_geos(fitbounds="locations", visible=False)
                 fig_fin.update_layout(
@@ -2304,8 +2285,8 @@ with tab5:
             ts_df = ts_df[ts_df["year"] == int(fin_year)]
         if fin_months:
             ts_df = ts_df[ts_df["month"].isin([MONTH_NUM[m] for m in fin_months])]
-        if selected_kcs:
-            ts_df = ts_df[ts_df["kind_code"].isin(selected_kcs)]
+        if selected_kc is not None:
+            ts_df = ts_df[ts_df["kind_code"] == selected_kc]
 
         ts_title = f"Monthly Gross Sales — {fin_area}"
         if fin_year != "All Years":
@@ -2316,48 +2297,27 @@ with tab5:
         if ts_df.empty:
             st.info("No time series data for this selection.")
         else:
-            if len(selected_kcs) > 1:
-                ts_agg = (
-                    ts_df.groupby(["date", "kind_code", "kind_name"], as_index=False)
-                    ["gross_sales"].sum()
-                )
-                ts_agg["label"] = (
-                    ts_agg["kind_code"].astype(str) + " — " + ts_agg["kind_name"]
-                )
-                fig_ts = px.line(
-                    ts_agg.sort_values("date"),
-                    x="date", y="gross_sales", color="label",
-                    title=ts_title,
-                    labels={"date": "Date", "gross_sales": "Gross Sales ($)", "label": "Kind Code"},
-                )
-                # Show markers so individual data points are visible even across gaps
-                fig_ts.update_traces(mode="lines+markers", marker=dict(size=4),
-                                     connectgaps=False)
-            else:
-                ts_agg = ts_df.groupby("date", as_index=False)["gross_sales"].sum()
-                fig_ts = px.line(
-                    ts_agg.sort_values("date"),
-                    x="date", y="gross_sales",
-                    title=ts_title,
-                    labels={"date": "Date", "gross_sales": "Gross Sales ($)"},
-                )
-                # User-selected line color; markers show actual data points
-                fig_ts.update_traces(
-                    line_color=fin_line_color, line_width=2,
-                    mode="lines+markers",
-                    marker=dict(size=4, color=fin_line_color),
-                    connectgaps=False,
-                )
+            # Aggregate all selected months/kind code into one total line per date
+            ts_agg = ts_df.groupby("date", as_index=False)["gross_sales"].sum()
+            fig_ts = px.line(
+                ts_agg.sort_values("date"),
+                x="date", y="gross_sales",
+                title=ts_title,
+                labels={"date": "Date", "gross_sales": "Gross Sales ($)"},
+            )
+            fig_ts.update_traces(
+                line_color=fin_line_color, line_width=2,
+                mode="lines+markers",
+                marker=dict(size=4, color=fin_line_color),
+                connectgaps=False,
+            )
 
             # When a single year is selected show every month; otherwise every 6 months
             if fin_year != "All Years":
                 fig_ts.update_xaxes(dtick="M1", tickformat="%b", ticklabelmode="instant")
             else:
                 fig_ts.update_xaxes(dtick="M6", tickformat="%b\n%Y", ticklabelmode="instant")
-            if fin_log_scale:
-                fig_ts.update_yaxes(type="log", tickformat="$,.0f")
-            else:
-                fig_ts.update_yaxes(tickformat="$,.0f")
+            fig_ts.update_yaxes(tickformat="$,.0f")
             fig_ts.update_layout(
                 height=420,
                 plot_bgcolor="#f8f9fa",
