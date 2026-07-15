@@ -2162,34 +2162,9 @@ with tab5:
             selected_kcs = [int(k.split(" — ")[0]) for k in fin_kc_sel] if fin_kc_sel else []
 
             st.markdown("---")
-            # Color scale for choropleth map
-            _fin_colorscale_opts = {
-                "Blue → Yellow → Orange → Red (cost map)": "RdYlBu_r",
-                "Blue → Yellow → Red":              "Spectral_r",
-                "Pink → White → Green (diverging)": "PiYG",
-                "Red → White → Green (diverging)":  "RdYlGn",
-                "Purple → White → Green (diverging)":"PRGn",
-                "Pink → White → Blue (diverging)":  "RdBu",
-                "Yellow → Orange → Red (default)":  "YlOrRd",
-                "Blue (light → dark)":              "Blues",
-                "Green (light → dark)":             "Greens",
-                "Purple (light → dark)":            "Purples",
-                "Orange (light → dark)":            "Oranges",
-                "Red (light → dark)":               "Reds",
-                "Plasma (purple → yellow)":         "Plasma",
-                "Viridis (purple → teal → yellow)": "Viridis",
-            }
-            fin_colorscale_label = st.selectbox(
-                "Map color scale",
-                list(_fin_colorscale_opts.keys()),
-                index=0,
-                key="fin_colorscale",
-            )
-            fin_colorscale = _fin_colorscale_opts[fin_colorscale_label]
-
             # Color picker for the time series line
             fin_line_color = st.color_picker(
-                "Chart line color", "#e85d04", key="fin_line_color"
+                "Chart line color", "#1a3a6b", key="fin_line_color"
             )
 
         # ── Choropleth map ────────────────────────────────────────────────────
@@ -2235,7 +2210,14 @@ with tab5:
                         "gross_sales_B": False,
                         "GEOID": False,
                     },
-                    color_continuous_scale=fin_colorscale,
+                    color_continuous_scale=[
+                        [0.0,  "#e8f0fb"],
+                        [0.2,  "#b3c9ed"],
+                        [0.4,  "#6e9fd4"],
+                        [0.6,  "#2e6db4"],
+                        [0.8,  "#14407a"],
+                        [1.0,  "#06204a"],
+                    ],
                     labels={
                         "gross_sales_B": "Gross Sales ($B)",
                         "gross_sales": "Gross Sales",
