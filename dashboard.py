@@ -1,6 +1,6 @@
 """
 Florida Population by Elevation — Streamlit Dashboard
-Author: Bella Harandi
+Author: Bellah Harandi
 Date: July 2026
 
 Run: python -m streamlit run dashboard.py
@@ -186,18 +186,28 @@ def load_finance_data():
     SKIP = {'Summary', 'Line Item Detail'}
     records = []
     for fname in FINANCE_FILES:
-        path = f"{FINANCE_DIR}/{fname}" if _is_url else os.path.join(FINANCE_DIR, fname)
-        if not _is_url and not os.path.exists(path):
-            continue
-        try:
-            xl = pd.ExcelFile(path)
-        except Exception:
-            continue
+        xl = None
+        actual_path = None
+        if not _is_url:
+            _lp = os.path.join(FINANCE_DIR, fname)
+            if os.path.exists(_lp):
+                try:
+                    xl = pd.ExcelFile(_lp)
+                    actual_path = _lp
+                except Exception:
+                    pass
+        if xl is None:
+            _up = f"{_fin_github}/{fname}"
+            try:
+                xl = pd.ExcelFile(_up)
+                actual_path = _up
+            except Exception:
+                continue
         for sheet in xl.sheet_names:
             if sheet in SKIP:
                 continue
             try:
-                raw = pd.read_excel(path, sheet_name=sheet, header=None)
+                raw = pd.read_excel(actual_path, sheet_name=sheet, header=None)
             except Exception:
                 continue
             hdr_idx = None
@@ -769,7 +779,8 @@ df_all = load_data()
 
 # ── Header ────────────────────────────────────────────────────────────────────
 st.title("Florida Population by Elevation (2010–2025)")
-st.caption("Author: Bella Harandi")
+st.caption("Author: Bellah Harandi")
+st.caption("Supervisors: Ivan David Haigh  |  Thomas Wahl  |  Christopher Emrich")
 st.caption("University of Central Florida (UCF)  |  2026")
 
 if df_all is None:
@@ -2265,6 +2276,8 @@ with tab5:
 st.markdown("---")
 st.caption(
     "Florida Population by Elevation (2010–2025)  |  "
-    "Author: Bella Harandi  |  University of Central Florida  |  2026  |  "
+    "Author: Bellah Harandi  |  "
+    "Supervisors: Ivan David Haigh, Thomas Wahl, Christopher Emrich  |  "
+    "University of Central Florida (UCF)  |  2026  |  "
     "Data: WorldPop 100 m rasters + USGS 1/3 arc-second DEM"
 )
