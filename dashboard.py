@@ -43,6 +43,7 @@ WORLDPOP_DIR  = _wp_local if os.path.isdir(_wp_local) else r"E:\2026\Datasets\wo
 _GITHUB_BASE = "https://raw.githubusercontent.com/BHarandi/Florida-population-elevation/main/data/Transportation"
 _INFRA_LOCAL = os.path.join(_BASE, "data", "Transportation")
 _FINAL_DATA  = r"F:\2026\Datasets\infrastracture\Final Data\Transportation"
+FINANCE_DIR  = r"F:\2026\Datasets\Finance\data2010-2025"
 
 
 def _resolve_layer_path(lcfg: dict) -> str:
@@ -119,6 +120,13 @@ BAND_COLORS_FT = {
     "164+ ft":  "#6b3a0f",
 }
 
+MONTH_NAMES = {
+    1: "January", 2: "February", 3: "March",    4: "April",
+    5: "May",     6: "June",     7: "July",      8: "August",
+    9: "September", 10: "October", 11: "November", 12: "December",
+}
+MONTH_NUM = {v: k for k, v in MONTH_NAMES.items()}
+
 
 # ── Data loaders ──────────────────────────────────────────────────────────────
 @st.cache_data
@@ -161,6 +169,78 @@ def load_state_geometry_wkt():
     from shapely.ops import unary_union
     gdf = gpd.read_file(STATE_SHP).to_crs(epsg=4326)
     return unary_union(gdf.geometry).wkt
+
+
+@st.cache_data(show_spinner="Loading gross sales data — first run only…")
+def load_finance_data():
+    """Parse all F10 Excel files in FINANCE_DIR → long-format DataFrame."""
+    if not os.path.isdir(FINANCE_DIR):
+        return pd.DataFrame()
+    files = sorted(f for f in os.listdir(FINANCE_DIR) if f.endswith('.xlsx'))
+    SKIP = {'Summary', 'Line Item Detail'}
+    records = []
+    for fname in files:
+        path = os.path.join(FINANCE_DIR, fname)
+        try:
+            xl = pd.ExcelFile(path)
+        except Exception:
+            continue
+        for sheet in xl.sheet_names:
+            if sheet in SKIP:
+                continue
+            try:
+                raw = pd.read_excel(path, sheet_name=sheet, header=None)
+            except Exception:
+                continue
+            hdr_idx = None
+            for i, row in raw.iterrows():
+                if any(str(v).strip() == 'Kind Code' for v in row.values):
+                    hdr_idx = i
+                    break
+            if hdr_idx is None:
+                continue
+            hdr = list(raw.iloc[hdr_idx].values)
+            month_cols = {}
+            for ci in range(2, len(hdr)):
+                v = hdr[ci]
+                try:
+                    if pd.isna(v):
+                        continue
+                except Exception:
+                    pass
+                try:
+                    dt = pd.to_datetime(v)
+                    month_cols[ci] = (dt.year, dt.month)
+                except Exception:
+                    pass
+            if not month_cols:
+                continue
+            for ri in range(hdr_idx + 1, len(raw)):
+                row = list(raw.iloc[ri].values)
+                try:
+                    kc = int(float(str(row[0]).strip()))
+                except (ValueError, TypeError):
+                    continue
+                kind_name = str(row[1]).strip() if len(row) > 1 else ''
+                for ci, (yr, mo) in month_cols.items():
+                    if ci >= len(row):
+                        continue
+                    try:
+                        sales = float(row[ci])
+                    except (TypeError, ValueError):
+                        continue
+                    if pd.isna(sales) or sales < 0:
+                        continue
+                    records.append((sheet, yr, mo, kc, kind_name, sales))
+    if not records:
+        return pd.DataFrame()
+    df = pd.DataFrame(records, columns=[
+        'county', 'year', 'month', 'kind_code', 'kind_name', 'gross_sales'
+    ])
+    df['date'] = pd.to_datetime(
+        df['year'].astype(str) + '-' + df['month'].astype(str).str.zfill(2) + '-01'
+    )
+    return df
 
 
 @st.cache_data(show_spinner="Loading infrastructure layer…")
@@ -747,7 +827,7 @@ for _ln_pre in INFRA_LAYERS:
         st.session_state[_k_pre] = _ln_pre in ("Airports",)
 
 # ── Tabs ──────────────────────────────────────────────────────────────────────
-tab1, tab2, tab3, tab4 = st.tabs(["Distribution", "Map", "Sea Level Rise", "FEMA Lifeline"])
+tab1, tab2, tab3, tab4, tab5 = st.tabs(["Distribution", "Map", "Sea Level Rise", "FEMA Lifeline", "Economic Activity"])
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -2002,6 +2082,175 @@ with tab4:
             st.dataframe(_pivot, use_container_width=True)
         else:
             st.info("No elevation data available for the selected layers.")
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# TAB 5 — Economic Activity (Florida F10 Gross Sales)
+# ─────────────────────────────────────────────────────────────────────────────
+with tab5:
+    st.subheader("Florida Gross Sales Activity (2010–2025)")
+
+    fin_df = load_finance_data()
+
+    if fin_df.empty:
+        st.warning(f"Finance data not found at: `{FINANCE_DIR}`")
+    else:
+        fin_ctrl_col, fin_map_col = st.columns([1, 3])
+
+        with fin_ctrl_col:
+            # Area
+            fin_county_opts = ["Florida (Statewide)"] + sorted(
+                c for c in fin_df["county"].unique() if c != "Statewide"
+            )
+            fin_area = st.selectbox("County / Statewide", fin_county_opts, key="fin_area")
+
+            # Year
+            fin_years = sorted(fin_df["year"].unique().tolist())
+            fin_year  = st.selectbox("Year", ["All Years"] + fin_years, key="fin_year")
+
+            # Month
+            fin_month = st.selectbox(
+                "Month", ["All Months"] + list(MONTH_NAMES.values()), key="fin_month"
+            )
+
+            # Kind Code — use most recent name per code
+            kc_ref = (
+                fin_df.sort_values("date")
+                .drop_duplicates(subset=["kind_code"], keep="last")
+                [["kind_code", "kind_name"]]
+                .sort_values("kind_code")
+            )
+            kc_options = [
+                f"{int(r.kind_code)} — {r.kind_name}" for _, r in kc_ref.iterrows()
+            ]
+            kc_default = [k for k in kc_options if k.startswith("111 ")]
+            fin_kc_sel = st.multiselect(
+                "Kind Code (business type)", kc_options,
+                default=kc_default, key="fin_kc",
+            )
+            selected_kcs = [int(k.split(" — ")[0]) for k in fin_kc_sel] if fin_kc_sel else []
+
+        # ── Choropleth map ────────────────────────────────────────────────────
+        map_df = fin_df[fin_df["county"] != "Statewide"].copy()
+        if fin_year != "All Years":
+            map_df = map_df[map_df["year"] == int(fin_year)]
+        if fin_month != "All Months":
+            map_df = map_df[map_df["month"] == MONTH_NUM[fin_month]]
+        if selected_kcs:
+            map_df = map_df[map_df["kind_code"].isin(selected_kcs)]
+
+        county_sales = map_df.groupby("county", as_index=False)["gross_sales"].sum()
+
+        # Join to GEOID10 for choropleth
+        if county_meta is not None:
+            _name_geoid = dict(zip(county_meta["NAME10"], county_meta["GEOID10"]))
+            county_sales["GEOID"] = county_sales["county"].map(_name_geoid)
+            county_sales = county_sales.dropna(subset=["GEOID"])
+
+        yr_lbl  = str(fin_year)
+        mo_lbl  = fin_month
+        kc_lbl  = (
+            ", ".join(fin_kc_sel[:2]) + ("…" if len(fin_kc_sel) > 2 else "")
+            if fin_kc_sel else "All Kind Codes"
+        )
+
+        with fin_map_col:
+            if county_sales.empty or "GEOID" not in county_sales.columns:
+                st.info("No map data for this selection.")
+            else:
+                fig_fin = px.choropleth(
+                    county_sales,
+                    geojson=fl_geojson,
+                    locations="GEOID",
+                    featureidkey="properties.GEOID10",
+                    color="gross_sales",
+                    hover_name="county",
+                    hover_data={"gross_sales": ":,.0f", "GEOID": False},
+                    color_continuous_scale="Blues",
+                    labels={"gross_sales": "Gross Sales ($)"},
+                    title=f"Gross Sales by County — {yr_lbl} / {mo_lbl} / {kc_lbl}",
+                )
+                for _i, (_lons, _lats) in enumerate(state_rings):
+                    fig_fin.add_scattergeo(
+                        lon=_lons, lat=_lats, mode="lines",
+                        line=dict(color="black", width=1.5),
+                        showlegend=False, hoverinfo="skip",
+                        name=f"_fin_boundary_{_i}",
+                    )
+                fig_fin.update_geos(fitbounds="locations", visible=False)
+                fig_fin.update_layout(
+                    height=500,
+                    margin={"r": 0, "t": 40, "l": 0, "b": 0},
+                    coloraxis_colorbar=dict(title="Gross Sales ($)", tickformat="$,.0f"),
+                )
+                st.plotly_chart(fig_fin, use_container_width=True)
+
+        # ── Time series chart ─────────────────────────────────────────────────
+        st.markdown("---")
+
+        if fin_area == "Florida (Statewide)":
+            ts_df = fin_df[fin_df["county"] == "Statewide"].copy()
+        else:
+            ts_df = fin_df[fin_df["county"] == fin_area].copy()
+
+        if fin_month != "All Months":
+            ts_df = ts_df[ts_df["month"] == MONTH_NUM[fin_month]]
+        if selected_kcs:
+            ts_df = ts_df[ts_df["kind_code"].isin(selected_kcs)]
+
+        ts_title = f"Monthly Gross Sales — {fin_area}"
+        if fin_month != "All Months":
+            ts_title += f"  ({fin_month} only)"
+
+        if ts_df.empty:
+            st.info("No time series data for this selection.")
+        else:
+            if len(selected_kcs) > 1:
+                ts_agg = (
+                    ts_df.groupby(["date", "kind_code", "kind_name"], as_index=False)
+                    ["gross_sales"].sum()
+                )
+                ts_agg["label"] = (
+                    ts_agg["kind_code"].astype(str) + " — " + ts_agg["kind_name"]
+                )
+                fig_ts = px.line(
+                    ts_agg.sort_values("date"),
+                    x="date", y="gross_sales", color="label",
+                    title=ts_title,
+                    labels={"date": "Date", "gross_sales": "Gross Sales ($)", "label": "Kind Code"},
+                )
+            else:
+                ts_agg = ts_df.groupby("date", as_index=False)["gross_sales"].sum()
+                fig_ts = px.line(
+                    ts_agg.sort_values("date"),
+                    x="date", y="gross_sales",
+                    title=ts_title,
+                    labels={"date": "Date", "gross_sales": "Gross Sales ($)"},
+                )
+                fig_ts.update_traces(line_color="#1f77b4", line_width=2)
+
+            fig_ts.update_xaxes(dtick="M6", tickformat="%b\n%Y", ticklabelmode="instant")
+            fig_ts.update_yaxes(tickformat="$,.0f")
+            fig_ts.update_layout(
+                height=420,
+                plot_bgcolor="#f8f9fa",
+                hovermode="x unified",
+                margin={"t": 50, "b": 10},
+            )
+            st.plotly_chart(fig_ts, use_container_width=True)
+
+            # Annual summary table
+            ann = (
+                ts_df.groupby("year", as_index=False)["gross_sales"]
+                .sum()
+                .assign(gross_sales_B=lambda d: (d["gross_sales"] / 1e9).round(2))
+                .rename(columns={"year": "Year", "gross_sales_B": "Gross Sales ($B)"})
+                [["Year", "Gross Sales ($B)"]]
+            )
+            st.markdown(f"**Annual totals — {fin_area}**")
+            st.dataframe(
+                ann.set_index("Year"), use_container_width=False, hide_index=False
+            )
 
 
 # ── Footer ────────────────────────────────────────────────────────────────────
