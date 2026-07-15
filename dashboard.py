@@ -2324,7 +2324,7 @@ with tab5:
                 ts_agg.sort_values("date"),
                 x="date", y="gross_sales",
                 title=ts_title,
-                labels={"date": "", "gross_sales": "Gross Sales ($M)"},
+                labels={"date": "Date", "gross_sales": "Gross Sales ($M)"},
             )
             fig_ts.update_traces(
                 line_color=fin_line_color, line_width=2,
@@ -2335,11 +2335,11 @@ with tab5:
 
             # When a single year is selected show every month; otherwise every 6 months
             if fin_year != "All Years":
-                fig_ts.update_xaxes(dtick="M1", tickformat="%b", ticklabelmode="instant")
+                fig_ts.update_xaxes(dtick="M1", tickformat="%b %Y", tickangle=-45)
             else:
-                fig_ts.update_xaxes(dtick="M6", tickformat="%b\n%Y", ticklabelmode="instant")
+                fig_ts.update_xaxes(dtick="M6", tickformat="%b %Y", tickangle=-45)
             fig_ts.update_yaxes(tickformat="$.2s", tickprefix="")
-            fig_ts.update_xaxes(title_text="")
+            fig_ts.update_xaxes(title_text="Date")
             fig_ts.update_layout(
                 height=420,
                 plot_bgcolor="#f8f9fa",
