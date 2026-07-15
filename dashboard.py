@@ -2139,15 +2139,11 @@ with tab5:
             fin_years = sorted(fin_df["year"].unique().tolist())
             fin_year  = st.selectbox("Year", ["All Years"] + fin_years, key="fin_year")
 
-            # Month — quick-reset button + specific month picker
-            if st.button("All Months", key="fin_all_months", use_container_width=True):
-                st.session_state["fin_months"] = []
-                st.rerun()
-            fin_months = st.multiselect(
-                "Or pick specific month(s):",
-                options=list(MONTH_NAMES.values()),
-                default=[],
-                key="fin_months",
+            # Month
+            fin_month = st.selectbox(
+                "Month",
+                ["All Months"] + list(MONTH_NAMES.values()),
+                key="fin_month",
             )
 
             # Kind Code — single select, only codes with data for current year/area
@@ -2184,8 +2180,8 @@ with tab5:
         map_df = fin_df[fin_df["county"] != "Statewide"].copy()
         if fin_year != "All Years":
             map_df = map_df[map_df["year"] == int(fin_year)]
-        if fin_months:
-            map_df = map_df[map_df["month"].isin([MONTH_NUM[m] for m in fin_months])]
+        if fin_month != "All Months":
+            map_df = map_df[map_df["month"] == MONTH_NUM[fin_month]]
         if selected_kc is not None:
             map_df = map_df[map_df["kind_code"] == selected_kc]
 
@@ -2201,7 +2197,7 @@ with tab5:
         county_sales["gross_sales_M"] = county_sales["gross_sales"] / 1e6
 
         yr_lbl  = str(fin_year)
-        mo_lbl  = ", ".join(fin_months) if fin_months else "All Months"
+        mo_lbl  = fin_month
         kc_lbl  = fin_kc_sel
 
         with fin_map_col:
@@ -2299,20 +2295,16 @@ with tab5:
         # Apply all active filters to the time series
         if fin_year != "All Years":
             ts_df = ts_df[ts_df["year"] == int(fin_year)]
-        if fin_months:
-            ts_df = ts_df[ts_df["month"].isin([MONTH_NUM[m] for m in fin_months])]
+        if fin_month != "All Months":
+            ts_df = ts_df[ts_df["month"] == MONTH_NUM[fin_month]]
         if selected_kc is not None:
             ts_df = ts_df[ts_df["kind_code"] == selected_kc]
 
         ts_title = f"Monthly Gross Sales — {fin_area}"
         if fin_year != "All Years":
             ts_title += f"  |  {fin_year}"
-        # Abbreviate month list in title: show up to 3 months, else "All Months" or "N months"
-        if fin_months:
-            if len(fin_months) <= 3:
-                ts_title += f"  |  {', '.join(fin_months)}"
-            else:
-                ts_title += f"  |  {len(fin_months)} months selected"
+        if fin_month != "All Months":
+            ts_title += f"  |  {fin_month}"
         if selected_kc is not None:
             _kc_display = fin_kc_sel.split(" — ", 1)[-1] if " — " in fin_kc_sel else fin_kc_sel
             ts_title += f"  |  {_kc_display}"
@@ -2322,6 +2314,12 @@ with tab5:
         else:
             # Aggregate all selected months/kind code into one total line per date
             ts_agg = ts_df.groupby("date", as_index=False)["gross_sales"].sum()
+            # Insert NaN for missing months so Plotly shows gaps instead of connecting lines
+            if not ts_agg.empty and fin_month == "All Months":
+                _full_range = pd.DataFrame({
+                    "date": pd.date_range(ts_agg["date"].min(), ts_agg["date"].max(), freq="MS")
+                })
+                ts_agg = _full_range.merge(ts_agg, on="date", how="left")
             fig_ts = px.line(
                 ts_agg.sort_values("date"),
                 x="date", y="gross_sales",
@@ -2350,19 +2348,6 @@ with tab5:
             )
             st.plotly_chart(fig_ts, use_container_width=True)
 
-            # Show a gap note only when ALL months are shown (no filter).
-            # When specific months are selected, gaps between them are expected — don't flag them.
-            if not fin_months and not ts_agg.empty:
-                _all_months_range = pd.date_range(
-                    start=ts_agg["date"].min(), end=ts_agg["date"].max(), freq="MS"
-                )
-                _missing_months = len(_all_months_range) - len(ts_agg)
-                if _missing_months > 0:
-                    st.caption(
-                        f"Note: {_missing_months} month(s) have no reported data for this selection "
-                        "(shown as gaps in the chart). This is normal — some counties or business types "
-                        "have reporting gaps in the source data."
-                    )
 
             # Annual summary table
             ann = (
