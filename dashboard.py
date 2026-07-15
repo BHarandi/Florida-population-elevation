@@ -2502,7 +2502,7 @@ with tab5:
                     help="PDF with map, chart, and annual totals. Requires kaleido.",
                 )
             except Exception:
-                _dl3.caption("PDF: run `pip install kaleido` to enable")
+                pass
 
 
 # ── Footer ────────────────────────────────────────────────────────────────────
