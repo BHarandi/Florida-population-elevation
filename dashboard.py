@@ -43,8 +43,15 @@ WORLDPOP_DIR  = _wp_local if os.path.isdir(_wp_local) else r"E:\2026\Datasets\wo
 _GITHUB_BASE = "https://raw.githubusercontent.com/BHarandi/Florida-population-elevation/main/data/Transportation"
 _INFRA_LOCAL = os.path.join(_BASE, "data", "Transportation")
 _FINAL_DATA  = r"F:\2026\Datasets\infrastracture\Final Data\Transportation"
-_fin_local  = os.path.join(_BASE, "data", "Finance")
-FINANCE_DIR = _fin_local if os.path.isdir(_fin_local) else r"F:\2026\Datasets\Finance\data2010-2025"
+_fin_local   = os.path.join(_BASE, "data", "Finance")
+_fin_github  = "https://raw.githubusercontent.com/BHarandi/Florida-population-elevation/main/data/Finance"
+FINANCE_DIR  = _fin_local if os.path.isdir(_fin_local) else _fin_github
+FINANCE_FILES = [
+    "F10_grsales_cy1011.xlsx", "F10_grsales_cy1213.xlsx",
+    "F10_grsales_cy1415.xlsx", "F10_grsales_cy1617.xlsx",
+    "F10_grsales_cy1819.xlsx", "F10_grsales_cy2021.xlsx",
+    "F10_grsales_cy2223.xlsx", "F10_grsales_cy2425.xlsx",
+]
 
 
 def _resolve_layer_path(lcfg: dict) -> str:
@@ -174,14 +181,14 @@ def load_state_geometry_wkt():
 
 @st.cache_data(show_spinner="Loading gross sales data — first run only…")
 def load_finance_data():
-    """Parse all F10 Excel files in FINANCE_DIR → long-format DataFrame."""
-    if not os.path.isdir(FINANCE_DIR):
-        return pd.DataFrame()
-    files = sorted(f for f in os.listdir(FINANCE_DIR) if f.endswith('.xlsx'))
+    """Parse all F10 Excel files → long-format DataFrame. Works local or via GitHub URL."""
+    _is_url = FINANCE_DIR.startswith("http")
     SKIP = {'Summary', 'Line Item Detail'}
     records = []
-    for fname in files:
-        path = os.path.join(FINANCE_DIR, fname)
+    for fname in FINANCE_FILES:
+        path = f"{FINANCE_DIR}/{fname}" if _is_url else os.path.join(FINANCE_DIR, fname)
+        if not _is_url and not os.path.exists(path):
+            continue
         try:
             xl = pd.ExcelFile(path)
         except Exception:
