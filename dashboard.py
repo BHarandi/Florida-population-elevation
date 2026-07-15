@@ -2367,7 +2367,7 @@ with tab5:
             st.markdown("**Download**")
             _dl1, _dl2, _dl3 = st.columns(3)
 
-            _mo_slug   = "_".join(fin_months[:3]) if fin_months else "AllMonths"
+            _mo_slug   = fin_month.replace(" ", "") if fin_month != "All Months" else "AllMonths"
             _area_slug = fin_area.replace(" ", "_")
 
             # ── 1. CSV — raw data ─────────────────────────────────────────────
