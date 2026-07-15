@@ -2114,14 +2114,26 @@ with tab5:
     if fin_df.empty:
         st.warning(f"Finance data not found at: `{FINANCE_DIR}`")
     else:
+        # Pre-build county list so map clicks can update the selectbox via session state
+        fin_county_opts = ["Florida (Statewide)"] + sorted(
+            c for c in fin_df["county"].unique() if c != "Statewide"
+        )
+        if "fin_area_sel" not in st.session_state:
+            st.session_state["fin_area_sel"] = "Florida (Statewide)"
+
         fin_ctrl_col, fin_map_col = st.columns([1, 3])
 
         with fin_ctrl_col:
-            # Area
-            fin_county_opts = ["Florida (Statewide)"] + sorted(
-                c for c in fin_df["county"].unique() if c != "Statewide"
+            # Area — index driven by session state so map clicks update the dropdown
+            _fa_idx = (
+                fin_county_opts.index(st.session_state["fin_area_sel"])
+                if st.session_state["fin_area_sel"] in fin_county_opts else 0
             )
-            fin_area = st.selectbox("County / Statewide", fin_county_opts, key="fin_area")
+            fin_area = st.selectbox(
+                "County / Statewide  *(click map to select)*",
+                fin_county_opts, index=_fa_idx, key="fin_area_dd",
+            )
+            st.session_state["fin_area_sel"] = fin_area
 
             # Year
             fin_years = sorted(fin_df["year"].unique().tolist())
@@ -2149,6 +2161,37 @@ with tab5:
             )
             selected_kcs = [int(k.split(" — ")[0]) for k in fin_kc_sel] if fin_kc_sel else []
 
+            st.markdown("---")
+            # Color scale for choropleth map
+            _fin_colorscale_opts = {
+                "Blue → Yellow → Orange → Red (cost map)": "RdYlBu_r",
+                "Blue → Yellow → Red":              "Spectral_r",
+                "Pink → White → Green (diverging)": "PiYG",
+                "Red → White → Green (diverging)":  "RdYlGn",
+                "Purple → White → Green (diverging)":"PRGn",
+                "Pink → White → Blue (diverging)":  "RdBu",
+                "Yellow → Orange → Red (default)":  "YlOrRd",
+                "Blue (light → dark)":              "Blues",
+                "Green (light → dark)":             "Greens",
+                "Purple (light → dark)":            "Purples",
+                "Orange (light → dark)":            "Oranges",
+                "Red (light → dark)":               "Reds",
+                "Plasma (purple → yellow)":         "Plasma",
+                "Viridis (purple → teal → yellow)": "Viridis",
+            }
+            fin_colorscale_label = st.selectbox(
+                "Map color scale",
+                list(_fin_colorscale_opts.keys()),
+                index=0,
+                key="fin_colorscale",
+            )
+            fin_colorscale = _fin_colorscale_opts[fin_colorscale_label]
+
+            # Color picker for the time series line
+            fin_line_color = st.color_picker(
+                "Chart line color", "#e85d04", key="fin_line_color"
+            )
+
         # ── Choropleth map ────────────────────────────────────────────────────
         map_df = fin_df[fin_df["county"] != "Statewide"].copy()
         if fin_year != "All Years":
@@ -2166,6 +2209,9 @@ with tab5:
             county_sales["GEOID"] = county_sales["county"].map(_name_geoid)
             county_sales = county_sales.dropna(subset=["GEOID"])
 
+        # Scale to billions for readable colorbar tick labels
+        county_sales["gross_sales_B"] = county_sales["gross_sales"] / 1e9
+
         yr_lbl  = str(fin_year)
         mo_lbl  = fin_month
         kc_lbl  = (
@@ -2182,11 +2228,18 @@ with tab5:
                     geojson=fl_geojson,
                     locations="GEOID",
                     featureidkey="properties.GEOID10",
-                    color="gross_sales",
+                    color="gross_sales_B",
                     hover_name="county",
-                    hover_data={"gross_sales": ":,.0f", "GEOID": False},
-                    color_continuous_scale="Blues",
-                    labels={"gross_sales": "Gross Sales ($)"},
+                    hover_data={
+                        "gross_sales": ":$,.0f",
+                        "gross_sales_B": False,
+                        "GEOID": False,
+                    },
+                    color_continuous_scale=fin_colorscale,
+                    labels={
+                        "gross_sales_B": "Gross Sales ($B)",
+                        "gross_sales": "Gross Sales",
+                    },
                     title=f"Gross Sales by County — {yr_lbl} / {mo_lbl} / {kc_lbl}",
                 )
                 for _i, (_lons, _lats) in enumerate(state_rings):
@@ -2196,13 +2249,58 @@ with tab5:
                         showlegend=False, hoverinfo="skip",
                         name=f"_fin_boundary_{_i}",
                     )
+                # Highlight selected county with a gold border
+                if fin_area != "Florida (Statewide)" and county_meta is not None:
+                    _name_geoid_fin = dict(zip(county_meta["NAME10"], county_meta["GEOID10"]))
+                    _sel_geoid = _name_geoid_fin.get(fin_area, "")
+                    if not _sel_geoid:
+                        # fallback: look inside county_sales already matched
+                        _match = county_sales[county_sales["county"] == fin_area]["GEOID"]
+                        _sel_geoid = _match.iloc[0] if not _match.empty else ""
+                    if _sel_geoid:
+                        fig_fin.add_choropleth(
+                            geojson=fl_geojson,
+                            locations=[_sel_geoid],
+                            featureidkey="properties.GEOID10",
+                            z=[1],
+                            colorscale=[[0, "rgba(0,0,0,0)"], [1, "rgba(0,0,0,0)"]],
+                            showscale=False,
+                            marker=dict(line=dict(color="gold", width=4)),
+                            hoverinfo="skip",
+                            name="_sel",
+                        )
+
                 fig_fin.update_geos(fitbounds="locations", visible=False)
                 fig_fin.update_layout(
                     height=500,
                     margin={"r": 0, "t": 40, "l": 0, "b": 0},
-                    coloraxis_colorbar=dict(title="Gross Sales ($)", tickformat="$,.0f"),
+                    coloraxis_colorbar=dict(
+                        title="Gross Sales<br>($B = billions)",
+                        tickprefix="$",
+                        ticksuffix="B",
+                        tickformat=",.1f",
+                    ),
                 )
-                st.plotly_chart(fig_fin, use_container_width=True)
+                _fin_event = st.plotly_chart(
+                    fig_fin, use_container_width=True,
+                    on_select="rerun", selection_mode="points",
+                    key="fin_choropleth",
+                )
+                st.caption("Click a county on the map to select it.")
+
+                # Handle map click → update county dropdown
+                if (_fin_event and _fin_event.selection
+                        and _fin_event.selection.get("points")
+                        and county_meta is not None):
+                    _clicked_loc = _fin_event.selection["points"][0].get("location")
+                    if _clicked_loc:
+                        _geoid_to_name = dict(zip(county_meta["GEOID10"], county_meta["NAME10"]))
+                        _clicked_name = _geoid_to_name.get(_clicked_loc, "")
+                        if (_clicked_name
+                                and _clicked_name in fin_county_opts
+                                and _clicked_name != st.session_state.get("fin_area_sel")):
+                            st.session_state["fin_area_sel"] = _clicked_name
+                            st.rerun()
 
         # ── Time series chart ─────────────────────────────────────────────────
         st.markdown("---")
@@ -2212,14 +2310,19 @@ with tab5:
         else:
             ts_df = fin_df[fin_df["county"] == fin_area].copy()
 
+        # Apply all active filters to the time series
+        if fin_year != "All Years":
+            ts_df = ts_df[ts_df["year"] == int(fin_year)]
         if fin_month != "All Months":
             ts_df = ts_df[ts_df["month"] == MONTH_NUM[fin_month]]
         if selected_kcs:
             ts_df = ts_df[ts_df["kind_code"].isin(selected_kcs)]
 
         ts_title = f"Monthly Gross Sales — {fin_area}"
+        if fin_year != "All Years":
+            ts_title += f"  |  {fin_year}"
         if fin_month != "All Months":
-            ts_title += f"  ({fin_month} only)"
+            ts_title += f"  |  {fin_month} only"
 
         if ts_df.empty:
             st.info("No time series data for this selection.")
@@ -2238,6 +2341,9 @@ with tab5:
                     title=ts_title,
                     labels={"date": "Date", "gross_sales": "Gross Sales ($)", "label": "Kind Code"},
                 )
+                # Show markers so individual data points are visible even across gaps
+                fig_ts.update_traces(mode="lines+markers", marker=dict(size=4),
+                                     connectgaps=False)
             else:
                 ts_agg = ts_df.groupby("date", as_index=False)["gross_sales"].sum()
                 fig_ts = px.line(
@@ -2246,17 +2352,39 @@ with tab5:
                     title=ts_title,
                     labels={"date": "Date", "gross_sales": "Gross Sales ($)"},
                 )
-                fig_ts.update_traces(line_color="#1f77b4", line_width=2)
+                # User-selected line color; markers show actual data points
+                fig_ts.update_traces(
+                    line_color=fin_line_color, line_width=2,
+                    mode="lines+markers",
+                    marker=dict(size=4, color=fin_line_color),
+                    connectgaps=False,
+                )
 
-            fig_ts.update_xaxes(dtick="M6", tickformat="%b\n%Y", ticklabelmode="instant")
+            # When a single year is selected show every month; otherwise every 6 months
+            if fin_year != "All Years":
+                fig_ts.update_xaxes(dtick="M1", tickformat="%b", ticklabelmode="instant")
+            else:
+                fig_ts.update_xaxes(dtick="M6", tickformat="%b\n%Y", ticklabelmode="instant")
             fig_ts.update_yaxes(tickformat="$,.0f")
             fig_ts.update_layout(
                 height=420,
                 plot_bgcolor="#f8f9fa",
-                hovermode="x unified",
+                hovermode="closest",
                 margin={"t": 50, "b": 10},
             )
             st.plotly_chart(fig_ts, use_container_width=True)
+
+            # Show a note if there are months with missing data
+            _all_months = pd.date_range(
+                start=ts_agg["date"].min(), end=ts_agg["date"].max(), freq="MS"
+            ) if not ts_agg.empty else []
+            _missing_months = len(_all_months) - len(ts_agg)
+            if _missing_months > 0:
+                st.caption(
+                    f"Note: {_missing_months} month(s) have no reported data for this selection "
+                    "(shown as gaps in the chart). This is normal — some counties or business types "
+                    "have reporting gaps in the source data."
+                )
 
             # Annual summary table
             ann = (
@@ -2270,6 +2398,52 @@ with tab5:
             st.dataframe(
                 ann.set_index("Year"), use_container_width=False, hide_index=False
             )
+
+            # ── Download section ──────────────────────────────────────────────
+            st.markdown("---")
+            st.markdown("**Download**")
+            _dl1, _dl2, _dl3 = st.columns(3)
+
+            # CSV — time series data for current selection
+            _csv_ts = ts_df[["county", "year", "month", "kind_code", "kind_name", "gross_sales", "date"]].copy()
+            _csv_ts = _csv_ts.rename(columns={"date": "Date", "county": "County",
+                                               "year": "Year", "month": "Month",
+                                               "kind_code": "Kind Code",
+                                               "kind_name": "Kind Name",
+                                               "gross_sales": "Gross Sales ($)"})
+            _dl1.download_button(
+                label="Download data (CSV)",
+                data=_csv_ts.to_csv(index=False).encode("utf-8"),
+                file_name=f"gross_sales_{fin_area.replace(' ','_')}_{fin_year}_{fin_month}.csv",
+                mime="text/csv",
+                use_container_width=True,
+            )
+
+            # PNG — time series chart
+            try:
+                _ts_png = fig_ts.to_image(format="png", width=1400, height=500, scale=2)
+                _dl2.download_button(
+                    label="Download chart (PNG)",
+                    data=_ts_png,
+                    file_name=f"gross_sales_chart_{fin_area.replace(' ','_')}_{fin_year}.png",
+                    mime="image/png",
+                    use_container_width=True,
+                )
+            except Exception:
+                _dl2.info("PNG export requires kaleido:\n`pip install kaleido`")
+
+            # PNG — choropleth map
+            try:
+                _map_png = fig_fin.to_image(format="png", width=1000, height=600, scale=2)
+                _dl3.download_button(
+                    label="Download map (PNG)",
+                    data=_map_png,
+                    file_name=f"gross_sales_map_{fin_year}_{fin_month}.png",
+                    mime="image/png",
+                    use_container_width=True,
+                )
+            except Exception:
+                _dl3.info("PNG export requires kaleido:\n`pip install kaleido`")
 
 
 # ── Footer ────────────────────────────────────────────────────────────────────
