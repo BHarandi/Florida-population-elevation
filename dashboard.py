@@ -2320,11 +2320,13 @@ with tab5:
                     "date": pd.date_range(ts_agg["date"].min(), ts_agg["date"].max(), freq="MS")
                 })
                 ts_agg = _full_range.merge(ts_agg, on="date", how="left")
+            # Scale to millions so y-axis shows readable numbers (avoids Plotly's "G" for billions)
+            ts_agg["gross_sales_M"] = ts_agg["gross_sales"] / 1e6
             fig_ts = px.line(
                 ts_agg.sort_values("date"),
-                x="date", y="gross_sales",
+                x="date", y="gross_sales_M",
                 title=ts_title,
-                labels={"date": "Date", "gross_sales": "Gross Sales ($M)"},
+                labels={"date": "Date", "gross_sales_M": "Gross Sales ($M)"},
             )
             fig_ts.update_traces(
                 line_color=fin_line_color, line_width=2,
@@ -2338,7 +2340,7 @@ with tab5:
                 fig_ts.update_xaxes(dtick="M1", tickformat="%b %Y", tickangle=-45)
             else:
                 fig_ts.update_xaxes(dtick="M6", tickformat="%b %Y", tickangle=-45)
-            fig_ts.update_yaxes(tickformat="$.2s", tickprefix="")
+            fig_ts.update_yaxes(tickformat="$,.0f", ticksuffix="M")
             fig_ts.update_xaxes(title_text="Date")
             fig_ts.update_layout(
                 height=420,
