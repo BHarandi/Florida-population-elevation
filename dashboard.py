@@ -2326,17 +2326,19 @@ with tab5:
             )
             st.plotly_chart(fig_ts, use_container_width=True)
 
-            # Show a note if there are months with missing data
-            _all_months = pd.date_range(
-                start=ts_agg["date"].min(), end=ts_agg["date"].max(), freq="MS"
-            ) if not ts_agg.empty else []
-            _missing_months = len(_all_months) - len(ts_agg)
-            if _missing_months > 0:
-                st.caption(
-                    f"Note: {_missing_months} month(s) have no reported data for this selection "
-                    "(shown as gaps in the chart). This is normal — some counties or business types "
-                    "have reporting gaps in the source data."
+            # Show a gap note only when ALL months are shown (no filter).
+            # When specific months are selected, gaps between them are expected — don't flag them.
+            if not fin_months and not ts_agg.empty:
+                _all_months_range = pd.date_range(
+                    start=ts_agg["date"].min(), end=ts_agg["date"].max(), freq="MS"
                 )
+                _missing_months = len(_all_months_range) - len(ts_agg)
+                if _missing_months > 0:
+                    st.caption(
+                        f"Note: {_missing_months} month(s) have no reported data for this selection "
+                        "(shown as gaps in the chart). This is normal — some counties or business types "
+                        "have reporting gaps in the source data."
+                    )
 
             # Annual summary table
             ann = (
@@ -2356,16 +2358,17 @@ with tab5:
             st.markdown("**Download**")
             _dl1, _dl2, _dl3, _dl4 = st.columns(4)
 
-            _mo_slug = "_".join(fin_months[:3]) if fin_months else "AllMonths"
+            _mo_slug   = "_".join(fin_months[:3]) if fin_months else "AllMonths"
             _area_slug = fin_area.replace(" ", "_")
 
-            # CSV — time series data for current selection
-            _csv_ts = ts_df[["county", "year", "month", "kind_code", "kind_name", "gross_sales", "date"]].copy()
-            _csv_ts = _csv_ts.rename(columns={"date": "Date", "county": "County",
-                                               "year": "Year", "month": "Month",
-                                               "kind_code": "Kind Code",
-                                               "kind_name": "Kind Name",
-                                               "gross_sales": "Gross Sales ($)"})
+            # ── 1. CSV — raw data ─────────────────────────────────────────────
+            _csv_ts = ts_df[["county", "year", "month", "kind_code", "kind_name",
+                              "gross_sales", "date"]].copy()
+            _csv_ts = _csv_ts.rename(columns={
+                "date": "Date", "county": "County", "year": "Year",
+                "month": "Month", "kind_code": "Kind Code",
+                "kind_name": "Kind Name", "gross_sales": "Gross Sales ($)",
+            })
             _dl1.download_button(
                 label="Download data (CSV)",
                 data=_csv_ts.to_csv(index=False).encode("utf-8"),
@@ -2374,80 +2377,90 @@ with tab5:
                 use_container_width=True,
             )
 
-            # PNG — time series chart
-            _ts_png_bytes = None
+            # ── 2. HTML Report — map + chart + table (no kaleido needed) ─────
+            # Embeds interactive Plotly figures; opens in any browser
+            _fig_map_html = ""
             try:
-                _ts_png_bytes = fig_ts.to_image(format="png", width=1400, height=500, scale=2)
-                _dl2.download_button(
-                    label="Download chart (PNG)",
-                    data=_ts_png_bytes,
+                _fig_map_html = fig_fin.to_html(
+                    include_plotlyjs="cdn", full_html=False,
+                    config={"responsive": True},
+                )
+            except Exception:
+                _fig_map_html = "<p><em>Map not available for this selection.</em></p>"
+
+            _fig_ts_html = fig_ts.to_html(
+                include_plotlyjs=False, full_html=False,
+                config={"responsive": True},
+            )
+            _ann_html = ann.to_html(index=True, border=0, classes="dt")
+
+            _html_report = f"""<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Florida Gross Sales — {fin_area} {fin_year}</title>
+<style>
+  body{{font-family:Arial,sans-serif;max-width:1400px;margin:0 auto;padding:24px;color:#222}}
+  h1{{color:#880e4f;margin-bottom:4px}}
+  .meta{{background:#fde8f0;border-radius:6px;padding:12px 20px;margin:12px 0 24px 0;font-size:.95rem;line-height:1.9}}
+  h2{{color:#880e4f;margin-top:36px;border-bottom:2px solid #fde8f0;padding-bottom:6px}}
+  .dt{{border-collapse:collapse;font-size:.9rem;margin-top:8px}}
+  .dt th,.dt td{{border:1px solid #ddd;padding:6px 16px;text-align:right}}
+  .dt th{{background:#fde8f0;color:#880e4f}}
+  footer{{margin-top:40px;color:#999;font-size:.8rem;border-top:1px solid #eee;padding-top:12px}}
+</style>
+</head>
+<body>
+<h1>Florida Gross Sales Report</h1>
+<div class="meta">
+  <b>Area:</b> {fin_area} &nbsp;&nbsp;
+  <b>Year:</b> {fin_year} &nbsp;&nbsp;
+  <b>Month(s):</b> {mo_lbl} &nbsp;&nbsp;
+  <b>Kind Code:</b> {kc_lbl}
+</div>
+<h2>Gross Sales Map by County</h2>
+{_fig_map_html}
+<h2>Monthly Gross Sales Chart</h2>
+{_fig_ts_html}
+<h2>Annual Totals</h2>
+{_ann_html}
+<footer>University of Central Florida (UCF) &nbsp;|&nbsp; Florida Gross Sales Activity 2010–2025 &nbsp;|&nbsp; Author: Bellah Harandi</footer>
+</body>
+</html>"""
+
+            _dl2.download_button(
+                label="Download report (HTML)",
+                data=_html_report.encode("utf-8"),
+                file_name=f"gross_sales_report_{_area_slug}_{fin_year}_{_mo_slug}.html",
+                mime="text/html",
+                use_container_width=True,
+                help="Opens in any browser — includes interactive map, chart, and table. No extra software needed.",
+            )
+
+            # ── 3 & 4. Static PNG exports (require kaleido) ──────────────────
+            try:
+                _ts_png = fig_ts.to_image(format="png", width=1400, height=500, scale=2)
+                _dl3.download_button(
+                    label="Chart (PNG)",
+                    data=_ts_png,
                     file_name=f"gross_sales_chart_{_area_slug}_{fin_year}.png",
                     mime="image/png",
                     use_container_width=True,
                 )
             except Exception:
-                _dl2.info("PNG export requires kaleido:\n`pip install kaleido`")
+                _dl3.caption("Chart PNG: run `pip install kaleido` to enable")
 
-            # PNG — choropleth map
-            _map_png_bytes = None
             try:
-                _map_png_bytes = fig_fin.to_image(format="png", width=1400, height=700, scale=2)
-                _dl3.download_button(
-                    label="Download map (PNG)",
-                    data=_map_png_bytes,
+                _map_png = fig_fin.to_image(format="png", width=1400, height=700, scale=2)
+                _dl4.download_button(
+                    label="Map (PNG)",
+                    data=_map_png,
                     file_name=f"gross_sales_map_{fin_year}_{_mo_slug}.png",
                     mime="image/png",
                     use_container_width=True,
                 )
             except Exception:
-                _dl3.info("PNG export requires kaleido:\n`pip install kaleido`")
-
-            # PDF — combined report (map + chart + filter summary)
-            try:
-                if _ts_png_bytes is None:
-                    _ts_png_bytes = fig_ts.to_image(format="png", width=1400, height=500, scale=2)
-                if _map_png_bytes is None:
-                    _map_png_bytes = fig_fin.to_image(format="png", width=1400, height=700, scale=2)
-
-                from PIL import Image as _PILImage, ImageDraw as _IDraw
-                _img_map   = _PILImage.open(io.BytesIO(_map_png_bytes)).convert("RGB")
-                _img_chart = _PILImage.open(io.BytesIO(_ts_png_bytes)).convert("RGB")
-
-                # Cover page: white canvas with filter summary text
-                _cov_w = max(_img_map.width, _img_chart.width)
-                _cov_h = 320
-                _cover = _PILImage.new("RGB", (_cov_w, _cov_h), color=(255, 255, 255))
-                _d = _IDraw.Draw(_cover)
-                _pink = (136, 14, 79)
-                _gray = (60, 60, 60)
-                _d.rectangle([0, 0, _cov_w, 8], fill=_pink)
-                _d.rectangle([0, _cov_h - 8, _cov_w, _cov_h], fill=_pink)
-                _lines = [
-                    ("Florida Gross Sales Report", _pink, 36),
-                    (f"Area: {fin_area}", _gray, 26),
-                    (f"Year: {fin_year}   |   Month(s): {mo_lbl}", _gray, 26),
-                    (f"Kind Code(s): {kc_lbl}", _gray, 26),
-                    ("University of Central Florida (UCF)  |  2026", _gray, 20),
-                ]
-                _y = 28
-                for _txt, _col, _fs in _lines:
-                    _d.text((60, _y), _txt, fill=_col)
-                    _y += _fs + 14
-
-                _pdf_buf = io.BytesIO()
-                _cover.save(
-                    _pdf_buf, format="PDF", save_all=True,
-                    append_images=[_img_map, _img_chart],
-                )
-                _dl4.download_button(
-                    label="Download report (PDF)",
-                    data=_pdf_buf.getvalue(),
-                    file_name=f"gross_sales_report_{_area_slug}_{fin_year}_{_mo_slug}.pdf",
-                    mime="application/pdf",
-                    use_container_width=True,
-                )
-            except Exception:
-                _dl4.info("PDF export requires kaleido:\n`pip install kaleido`")
+                _dl4.caption("Map PNG: run `pip install kaleido` to enable")
 
 
 # ── Footer ────────────────────────────────────────────────────────────────────
