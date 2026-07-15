@@ -2161,11 +2161,7 @@ with tab5:
             )
             selected_kcs = [int(k.split(" — ")[0]) for k in fin_kc_sel] if fin_kc_sel else []
 
-            st.markdown("---")
-            # Color picker for the time series line
-            fin_line_color = st.color_picker(
-                "Chart line color", "#1a3a6b", key="fin_line_color"
-            )
+            fin_line_color = "#9d174d"  # dark pink, matches map palette
 
         # ── Choropleth map ────────────────────────────────────────────────────
         map_df = fin_df[fin_df["county"] != "Statewide"].copy()
@@ -2211,12 +2207,12 @@ with tab5:
                         "GEOID": False,
                     },
                     color_continuous_scale=[
-                        [0.0,  "#e8f0fb"],
-                        [0.2,  "#b3c9ed"],
-                        [0.4,  "#6e9fd4"],
-                        [0.6,  "#2e6db4"],
-                        [0.8,  "#14407a"],
-                        [1.0,  "#06204a"],
+                        [0.00, "#fdf2f8"],   # near-white pink (lowest)
+                        [0.20, "#fbc2eb"],   # pale pink
+                        [0.40, "#f472b6"],   # light hot pink
+                        [0.60, "#ec4899"],   # medium pink
+                        [0.80, "#be185d"],   # deep pink
+                        [1.00, "#831843"],   # dark magenta/wine (highest)
                     ],
                     labels={
                         "gross_sales_B": "Gross Sales ($B)",
