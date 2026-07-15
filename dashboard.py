@@ -2139,9 +2139,12 @@ with tab5:
             fin_years = sorted(fin_df["year"].unique().tolist())
             fin_year  = st.selectbox("Year", ["All Years"] + fin_years, key="fin_year")
 
-            # Month
-            fin_month = st.selectbox(
-                "Month", ["All Months"] + list(MONTH_NAMES.values()), key="fin_month"
+            # Month — multiselect; empty = all months
+            fin_months = st.multiselect(
+                "Month(s) — leave empty for all",
+                options=list(MONTH_NAMES.values()),
+                default=[],
+                key="fin_months",
             )
 
             # Kind Code — use most recent name per code
@@ -2161,14 +2164,21 @@ with tab5:
             )
             selected_kcs = [int(k.split(" — ")[0]) for k in fin_kc_sel] if fin_kc_sel else []
 
+            fin_log_scale = st.toggle(
+                "Log scale (Y axis)",
+                value=False,
+                key="fin_log_scale",
+                help="Use log scale when kind codes have very different sales volumes — prevents small lines from appearing flat at $0.",
+            )
+
             fin_line_color = "#9d174d"  # dark pink, matches map palette
 
         # ── Choropleth map ────────────────────────────────────────────────────
         map_df = fin_df[fin_df["county"] != "Statewide"].copy()
         if fin_year != "All Years":
             map_df = map_df[map_df["year"] == int(fin_year)]
-        if fin_month != "All Months":
-            map_df = map_df[map_df["month"] == MONTH_NUM[fin_month]]
+        if fin_months:
+            map_df = map_df[map_df["month"].isin([MONTH_NUM[m] for m in fin_months])]
         if selected_kcs:
             map_df = map_df[map_df["kind_code"].isin(selected_kcs)]
 
@@ -2184,7 +2194,7 @@ with tab5:
         county_sales["gross_sales_B"] = county_sales["gross_sales"] / 1e9
 
         yr_lbl  = str(fin_year)
-        mo_lbl  = fin_month
+        mo_lbl  = ", ".join(fin_months) if fin_months else "All Months"
         kc_lbl  = (
             ", ".join(fin_kc_sel[:2]) + ("…" if len(fin_kc_sel) > 2 else "")
             if fin_kc_sel else "All Kind Codes"
@@ -2207,12 +2217,13 @@ with tab5:
                         "GEOID": False,
                     },
                     color_continuous_scale=[
-                        [0.00, "#fdf2f8"],   # near-white pink (lowest)
-                        [0.20, "#fbc2eb"],   # pale pink
-                        [0.40, "#f472b6"],   # light hot pink
-                        [0.60, "#ec4899"],   # medium pink
-                        [0.80, "#be185d"],   # deep pink
-                        [1.00, "#831843"],   # dark magenta/wine (highest)
+                        [0.00, "#fde8f0"],   # very light pink (lowest)
+                        [0.18, "#f9c0d8"],   # light pink
+                        [0.38, "#d5e9c0"],   # pale sage green (transition)
+                        [0.55, "#8bc34a"],   # medium green
+                        [0.68, "#f06292"],   # light hot pink (transition back)
+                        [0.84, "#e91e8c"],   # hot pink
+                        [1.00, "#880e4f"],   # dark magenta (highest)
                     ],
                     labels={
                         "gross_sales_B": "Gross Sales ($B)",
@@ -2291,16 +2302,16 @@ with tab5:
         # Apply all active filters to the time series
         if fin_year != "All Years":
             ts_df = ts_df[ts_df["year"] == int(fin_year)]
-        if fin_month != "All Months":
-            ts_df = ts_df[ts_df["month"] == MONTH_NUM[fin_month]]
+        if fin_months:
+            ts_df = ts_df[ts_df["month"].isin([MONTH_NUM[m] for m in fin_months])]
         if selected_kcs:
             ts_df = ts_df[ts_df["kind_code"].isin(selected_kcs)]
 
         ts_title = f"Monthly Gross Sales — {fin_area}"
         if fin_year != "All Years":
             ts_title += f"  |  {fin_year}"
-        if fin_month != "All Months":
-            ts_title += f"  |  {fin_month} only"
+        if fin_months:
+            ts_title += f"  |  {mo_lbl}"
 
         if ts_df.empty:
             st.info("No time series data for this selection.")
@@ -2343,7 +2354,10 @@ with tab5:
                 fig_ts.update_xaxes(dtick="M1", tickformat="%b", ticklabelmode="instant")
             else:
                 fig_ts.update_xaxes(dtick="M6", tickformat="%b\n%Y", ticklabelmode="instant")
-            fig_ts.update_yaxes(tickformat="$,.0f")
+            if fin_log_scale:
+                fig_ts.update_yaxes(type="log", tickformat="$,.0f")
+            else:
+                fig_ts.update_yaxes(tickformat="$,.0f")
             fig_ts.update_layout(
                 height=420,
                 plot_bgcolor="#f8f9fa",
@@ -2380,7 +2394,10 @@ with tab5:
             # ── Download section ──────────────────────────────────────────────
             st.markdown("---")
             st.markdown("**Download**")
-            _dl1, _dl2, _dl3 = st.columns(3)
+            _dl1, _dl2, _dl3, _dl4 = st.columns(4)
+
+            _mo_slug = "_".join(fin_months[:3]) if fin_months else "AllMonths"
+            _area_slug = fin_area.replace(" ", "_")
 
             # CSV — time series data for current selection
             _csv_ts = ts_df[["county", "year", "month", "kind_code", "kind_name", "gross_sales", "date"]].copy()
@@ -2392,18 +2409,19 @@ with tab5:
             _dl1.download_button(
                 label="Download data (CSV)",
                 data=_csv_ts.to_csv(index=False).encode("utf-8"),
-                file_name=f"gross_sales_{fin_area.replace(' ','_')}_{fin_year}_{fin_month}.csv",
+                file_name=f"gross_sales_{_area_slug}_{fin_year}_{_mo_slug}.csv",
                 mime="text/csv",
                 use_container_width=True,
             )
 
             # PNG — time series chart
+            _ts_png_bytes = None
             try:
-                _ts_png = fig_ts.to_image(format="png", width=1400, height=500, scale=2)
+                _ts_png_bytes = fig_ts.to_image(format="png", width=1400, height=500, scale=2)
                 _dl2.download_button(
                     label="Download chart (PNG)",
-                    data=_ts_png,
-                    file_name=f"gross_sales_chart_{fin_area.replace(' ','_')}_{fin_year}.png",
+                    data=_ts_png_bytes,
+                    file_name=f"gross_sales_chart_{_area_slug}_{fin_year}.png",
                     mime="image/png",
                     use_container_width=True,
                 )
@@ -2411,17 +2429,65 @@ with tab5:
                 _dl2.info("PNG export requires kaleido:\n`pip install kaleido`")
 
             # PNG — choropleth map
+            _map_png_bytes = None
             try:
-                _map_png = fig_fin.to_image(format="png", width=1000, height=600, scale=2)
+                _map_png_bytes = fig_fin.to_image(format="png", width=1400, height=700, scale=2)
                 _dl3.download_button(
                     label="Download map (PNG)",
-                    data=_map_png,
-                    file_name=f"gross_sales_map_{fin_year}_{fin_month}.png",
+                    data=_map_png_bytes,
+                    file_name=f"gross_sales_map_{fin_year}_{_mo_slug}.png",
                     mime="image/png",
                     use_container_width=True,
                 )
             except Exception:
                 _dl3.info("PNG export requires kaleido:\n`pip install kaleido`")
+
+            # PDF — combined report (map + chart + filter summary)
+            try:
+                if _ts_png_bytes is None:
+                    _ts_png_bytes = fig_ts.to_image(format="png", width=1400, height=500, scale=2)
+                if _map_png_bytes is None:
+                    _map_png_bytes = fig_fin.to_image(format="png", width=1400, height=700, scale=2)
+
+                from PIL import Image as _PILImage, ImageDraw as _IDraw
+                _img_map   = _PILImage.open(io.BytesIO(_map_png_bytes)).convert("RGB")
+                _img_chart = _PILImage.open(io.BytesIO(_ts_png_bytes)).convert("RGB")
+
+                # Cover page: white canvas with filter summary text
+                _cov_w = max(_img_map.width, _img_chart.width)
+                _cov_h = 320
+                _cover = _PILImage.new("RGB", (_cov_w, _cov_h), color=(255, 255, 255))
+                _d = _IDraw.Draw(_cover)
+                _pink = (136, 14, 79)
+                _gray = (60, 60, 60)
+                _d.rectangle([0, 0, _cov_w, 8], fill=_pink)
+                _d.rectangle([0, _cov_h - 8, _cov_w, _cov_h], fill=_pink)
+                _lines = [
+                    ("Florida Gross Sales Report", _pink, 36),
+                    (f"Area: {fin_area}", _gray, 26),
+                    (f"Year: {fin_year}   |   Month(s): {mo_lbl}", _gray, 26),
+                    (f"Kind Code(s): {kc_lbl}", _gray, 26),
+                    ("University of Central Florida (UCF)  |  2026", _gray, 20),
+                ]
+                _y = 28
+                for _txt, _col, _fs in _lines:
+                    _d.text((60, _y), _txt, fill=_col)
+                    _y += _fs + 14
+
+                _pdf_buf = io.BytesIO()
+                _cover.save(
+                    _pdf_buf, format="PDF", save_all=True,
+                    append_images=[_img_map, _img_chart],
+                )
+                _dl4.download_button(
+                    label="Download report (PDF)",
+                    data=_pdf_buf.getvalue(),
+                    file_name=f"gross_sales_report_{_area_slug}_{fin_year}_{_mo_slug}.pdf",
+                    mime="application/pdf",
+                    use_container_width=True,
+                )
+            except Exception:
+                _dl4.info("PDF export requires kaleido:\n`pip install kaleido`")
 
 
 # ── Footer ────────────────────────────────────────────────────────────────────
