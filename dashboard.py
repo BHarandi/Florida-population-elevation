@@ -43,7 +43,8 @@ WORLDPOP_DIR  = _wp_local if os.path.isdir(_wp_local) else r"E:\2026\Datasets\wo
 _GITHUB_BASE = "https://raw.githubusercontent.com/BHarandi/Florida-population-elevation/main/data/Transportation"
 _INFRA_LOCAL = os.path.join(_BASE, "data", "Transportation")
 _FINAL_DATA  = r"F:\2026\Datasets\infrastracture\Final Data\Transportation"
-FINANCE_DIR  = r"F:\2026\Datasets\Finance\data2010-2025"
+_fin_local  = os.path.join(_BASE, "data", "Finance")
+FINANCE_DIR = _fin_local if os.path.isdir(_fin_local) else r"F:\2026\Datasets\Finance\data2010-2025"
 
 
 def _resolve_layer_path(lcfg: dict) -> str:
