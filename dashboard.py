@@ -69,10 +69,6 @@ def _resolve_layer_path(lcfg: dict) -> str:
 
 
 INFRA_LAYERS = {
-    "Airports": {
-        "local": "Airports.geojson",
-        "color": "#1f77b4", "group": "Transportation",
-    },
     "Roadways": {
         "local": "Roadways.geojson",
         "color": "#e377c2", "group": "Transportation",
@@ -81,19 +77,6 @@ INFRA_LAYERS = {
     "Bridges": {
         "local": "Bridges.geojson",
         "color": "#ff7f0e", "group": "Transportation",
-        "is_line": True,
-    },
-    "Marinas": {
-        "local": "Marinas.geojson",
-        "color": "#9467bd", "group": "Transportation",
-    },
-    "Ports": {
-        "local": "Ports.geojson",
-        "color": "#8c564b", "group": "Transportation",
-    },
-    "Railway": {
-        "local": "Railway.geojson",
-        "color": "#2ca02c", "group": "Transportation",
         "is_line": True,
     },
     "Bus Terminals": {
@@ -108,6 +91,23 @@ INFRA_LAYERS = {
     "Rail Facilities (Points)": {
         "local": "Rail Facilities (PT).geojson",
         "color": "#595959", "group": "Transportation",
+    },
+    "Railway": {
+        "local": "Railway.geojson",
+        "color": "#2ca02c", "group": "Transportation",
+        "is_line": True,
+    },
+    "Ports": {
+        "local": "Ports.geojson",
+        "color": "#8c564b", "group": "Transportation",
+    },
+    "Marinas": {
+        "local": "Marinas.geojson",
+        "color": "#9467bd", "group": "Transportation",
+    },
+    "Aviation (Airports)": {
+        "local": "Airports.geojson",
+        "color": "#1f77b4", "group": "Transportation",
     },
 }
 
@@ -843,7 +843,7 @@ df_area = get_area_df(selected_area, unit_key,
 for _ln_pre in INFRA_LAYERS:
     _k_pre = f"infra_{_ln_pre.replace(' ', '_')}"
     if _k_pre not in st.session_state:
-        st.session_state[_k_pre] = _ln_pre in ("Airports",)
+        st.session_state[_k_pre] = _ln_pre in ("Aviation (Airports)",)
 
 # ── Tabs ──────────────────────────────────────────────────────────────────────
 tab1, tab2, tab3, tab4, tab5 = st.tabs(["Distribution", "Map", "Sea Level Rise", "FEMA Lifeline", "Economic Activity"])
