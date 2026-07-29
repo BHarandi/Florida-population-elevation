@@ -35,6 +35,7 @@ STATE_SHP  = os.path.join(_BASE, "data", "shp", "state",    "tl_2020_12_state.sh
 DEM_PATH      = os.path.join(_BASE, "data", "dem_florida_100m.tif")
 _wp_local     = os.path.join(_BASE, "data", "worldpop_wgs84")
 WORLDPOP_DIR  = _wp_local if os.path.isdir(_wp_local) else r"E:\2026\Datasets\worldpop-data\wgs84"
+HAZARDS_PATH  = r"E:\2026\Datasets\Hazards\Cleaned_NCEI_Storm_Database_Details_1996-2024.parquet"
 
 # ── Infrastructure data paths ──────────────────────────────────────────────────
 # Primary source: GitHub raw URLs (public — works for everyone).
@@ -69,10 +70,6 @@ def _resolve_layer_path(lcfg: dict) -> str:
 
 
 INFRA_LAYERS = {
-    "Airports": {
-        "local": "Airports.geojson",
-        "color": "#1f77b4", "group": "Transportation",
-    },
     "Roadways": {
         "local": "Roadways.geojson",
         "color": "#e377c2", "group": "Transportation",
@@ -81,19 +78,6 @@ INFRA_LAYERS = {
     "Bridges": {
         "local": "Bridges.geojson",
         "color": "#ff7f0e", "group": "Transportation",
-        "is_line": True,
-    },
-    "Marinas": {
-        "local": "Marinas.geojson",
-        "color": "#9467bd", "group": "Transportation",
-    },
-    "Ports": {
-        "local": "Ports.geojson",
-        "color": "#8c564b", "group": "Transportation",
-    },
-    "Railway": {
-        "local": "Railway.geojson",
-        "color": "#2ca02c", "group": "Transportation",
         "is_line": True,
     },
     "Bus Terminals": {
@@ -108,6 +92,23 @@ INFRA_LAYERS = {
     "Rail Facilities (Points)": {
         "local": "Rail Facilities (PT).geojson",
         "color": "#595959", "group": "Transportation",
+    },
+    "Railway": {
+        "local": "Railway.geojson",
+        "color": "#2ca02c", "group": "Transportation",
+        "is_line": True,
+    },
+    "Ports": {
+        "local": "Ports.geojson",
+        "color": "#8c564b", "group": "Transportation",
+    },
+    "Marinas": {
+        "local": "Marinas.geojson",
+        "color": "#9467bd", "group": "Transportation",
+    },
+    "Aviation (Airports)": {
+        "local": "Airports.geojson",
+        "color": "#1f77b4", "group": "Transportation",
     },
 }
 
@@ -142,6 +143,26 @@ def load_data():
     if not os.path.exists(DATA_PATH):
         return None
     return pd.read_parquet(DATA_PATH)
+
+
+@st.cache_data(show_spinner="Loading hazards data…")
+def load_hazards_data():
+    if not os.path.exists(HAZARDS_PATH):
+        return None
+    cols = [
+        "GEOID", "STATE_FIPS", "CZ_NAME", "EVENT_TYPE", "HAZARD",
+        "start_year", "BEGIN_DATETIME", "BEGIN_LAT", "BEGIN_LON",
+        "DAMAGE_PROPERTY", "ADJ_DAMAGE_PROPERTY", "TOTAL_ADJ_DAMAGE",
+        "DEATHS_DIRECT", "DEATHS_INDIRECT", "TOTAL_DEATHS",
+        "INJURIES_DIRECT", "INJURIES_INDIRECT", "TOTAL_INJURIES",
+    ]
+    df = pd.read_parquet(HAZARDS_PATH, columns=cols)
+    df = df[df["STATE_FIPS"] == "12"].copy()   # Florida only
+    df["start_year"] = df["start_year"].astype(int)
+    df["ADJ_DAMAGE_PROPERTY"] = pd.to_numeric(df["ADJ_DAMAGE_PROPERTY"], errors="coerce").fillna(0)
+    df["TOTAL_DEATHS"]        = pd.to_numeric(df["TOTAL_DEATHS"],        errors="coerce").fillna(0)
+    df["TOTAL_INJURIES"]      = pd.to_numeric(df["TOTAL_INJURIES"],      errors="coerce").fillna(0)
+    return df
 
 
 @st.cache_data
@@ -843,10 +864,10 @@ df_area = get_area_df(selected_area, unit_key,
 for _ln_pre in INFRA_LAYERS:
     _k_pre = f"infra_{_ln_pre.replace(' ', '_')}"
     if _k_pre not in st.session_state:
-        st.session_state[_k_pre] = _ln_pre in ("Airports",)
+        st.session_state[_k_pre] = _ln_pre in ("Aviation (Airports)",)
 
 # ── Tabs ──────────────────────────────────────────────────────────────────────
-tab1, tab2, tab3, tab4, tab5 = st.tabs(["Distribution", "Map", "Sea Level Rise", "FEMA Lifeline", "Economic Activity"])
+tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs(["Distribution", "Map", "Sea Level Rise", "FEMA Lifeline", "Economic Activity", "Hazards"])
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -2505,6 +2526,284 @@ with tab5:
                 )
             except Exception:
                 pass
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# TAB 6 — Hazards (NCEI Storm Events 1996–2024, Florida)
+# ─────────────────────────────────────────────────────────────────────────────
+with tab6:
+    st.subheader("Florida Hazard Events — NCEI Storm Database (1996–2024)")
+
+    df_hz = load_hazards_data()
+    if df_hz is None:
+        st.error(f"Hazards file not found:\n`{HAZARDS_PATH}`")
+    else:
+        # ── Sidebar-style filters (top row) ───────────────────────────────────
+        hz_f1, hz_f2, hz_f3, hz_f4 = st.columns([1, 1, 2, 2])
+
+        hz_yr_min, hz_yr_max = int(df_hz["start_year"].min()), int(df_hz["start_year"].max())
+        with hz_f1:
+            hz_year_range = st.slider(
+                "Year range", hz_yr_min, hz_yr_max,
+                (hz_yr_min, hz_yr_max), key="hz_year_range",
+            )
+        with hz_f2:
+            hz_metric = st.radio(
+                "Measure", ["Events", "Property Damage ($)", "Deaths", "Injuries"],
+                key="hz_metric",
+            )
+        with hz_f3:
+            all_hazards = sorted(df_hz["HAZARD"].dropna().unique())
+            hz_hazards = st.multiselect(
+                "Hazard type", all_hazards, default=all_hazards, key="hz_hazards",
+            )
+        with hz_f4:
+            hz_county_opts = ["All counties"] + sorted(df_hz["CZ_NAME"].dropna().unique())
+            hz_county = st.selectbox("County / Zone", hz_county_opts, key="hz_county")
+
+        st.markdown("---")
+
+        # ── Apply filters ─────────────────────────────────────────────────────
+        dff = df_hz[
+            (df_hz["start_year"] >= hz_year_range[0]) &
+            (df_hz["start_year"] <= hz_year_range[1]) &
+            (df_hz["HAZARD"].isin(hz_hazards))
+        ].copy()
+        if hz_county != "All counties":
+            dff = dff[dff["CZ_NAME"] == hz_county]
+
+        metric_col = {
+            "Events":               None,
+            "Property Damage ($)":  "ADJ_DAMAGE_PROPERTY",
+            "Deaths":               "TOTAL_DEATHS",
+            "Injuries":             "TOTAL_INJURIES",
+        }[hz_metric]
+
+        # ── KPI metrics ───────────────────────────────────────────────────────
+        kpi1, kpi2, kpi3, kpi4 = st.columns(4)
+        kpi1.metric("Total events",          f"{len(dff):,}")
+        kpi2.metric("Total property damage", f"${dff['ADJ_DAMAGE_PROPERTY'].sum()/1e6:.1f} M")
+        kpi3.metric("Total deaths",          f"{int(dff['TOTAL_DEATHS'].sum()):,}")
+        kpi4.metric("Total injuries",        f"{int(dff['TOTAL_INJURIES'].sum()):,}")
+
+        st.markdown("---")
+        hz_col1, hz_col2 = st.columns(2)
+
+        # ── Bar chart — top hazard types ──────────────────────────────────────
+        with hz_col1:
+            if metric_col is None:
+                bar_df = (dff.groupby("EVENT_TYPE")
+                            .size()
+                            .reset_index(name="value")
+                            .sort_values("value", ascending=False)
+                            .head(15))
+                bar_label = "Number of events"
+            else:
+                bar_df = (dff.groupby("EVENT_TYPE")[metric_col]
+                            .sum()
+                            .reset_index(name="value")
+                            .sort_values("value", ascending=False)
+                            .head(15))
+                bar_label = hz_metric
+
+            fig_hz_bar = px.bar(
+                bar_df, x="value", y="EVENT_TYPE",
+                orientation="h",
+                labels={"value": bar_label, "EVENT_TYPE": "Event type"},
+                title=f"Top event types — {hz_metric}",
+                color="value",
+                color_continuous_scale="Reds",
+            )
+            fig_hz_bar.update_layout(
+                height=440, showlegend=False,
+                yaxis=dict(autorange="reversed"),
+                coloraxis_showscale=False,
+            )
+            st.plotly_chart(fig_hz_bar, use_container_width=True)
+
+        # ── Time series — by year ─────────────────────────────────────────────
+        with hz_col2:
+            if metric_col is None:
+                ts_df = (dff.groupby(["start_year", "HAZARD"])
+                           .size()
+                           .reset_index(name="value"))
+                ts_label = "Number of events"
+            else:
+                ts_df = (dff.groupby(["start_year", "HAZARD"])[metric_col]
+                           .sum()
+                           .reset_index(name="value"))
+                ts_label = hz_metric
+
+            fig_hz_ts = px.line(
+                ts_df, x="start_year", y="value", color="HAZARD",
+                labels={"start_year": "Year", "value": ts_label, "HAZARD": "Hazard"},
+                title=f"{hz_metric} per year by hazard type",
+                markers=True,
+            )
+            fig_hz_ts.update_layout(height=440, legend=dict(font=dict(size=10)))
+            st.plotly_chart(fig_hz_ts, use_container_width=True)
+
+        # ── County breakdown ──────────────────────────────────────────────────
+        st.markdown("---")
+        st.markdown("**Hazards by county**")
+
+        geo_json_hz, county_df_hz = load_county_geojson()
+
+        if metric_col is None:
+            county_agg = dff.groupby("GEOID").size().reset_index(name="value")
+            top_county_agg = dff.groupby("CZ_NAME").size().reset_index(name="value")
+            choro_label = "Events"
+        else:
+            county_agg = dff.groupby("GEOID")[metric_col].sum().reset_index(name="value")
+            top_county_agg = dff.groupby("CZ_NAME")[metric_col].sum().reset_index(name="value")
+            choro_label = hz_metric
+
+        if county_df_hz is not None:
+            county_agg = county_agg.merge(
+                county_df_hz.rename(columns={"GEOID10": "GEOID", "NAME10": "County"}),
+                on="GEOID", how="left",
+            )
+
+        choro_col, county_bar_col = st.columns([1.5, 1])
+
+        with choro_col:
+            if geo_json_hz is not None and not county_agg.empty:
+                fig_choro = px.choropleth_mapbox(
+                    county_agg,
+                    geojson=geo_json_hz,
+                    locations="GEOID",
+                    featureidkey="properties.GEOID10",
+                    color="value",
+                    color_continuous_scale="Reds",
+                    hover_name="County",
+                    hover_data={"value": ":,.0f", "GEOID": False},
+                    labels={"value": choro_label},
+                    mapbox_style="carto-positron",
+                    zoom=5.5,
+                    center={"lat": 27.8, "lon": -81.5},
+                    title=f"{hz_metric} by county",
+                    height=480,
+                )
+                fig_choro.update_layout(
+                    margin={"r": 0, "t": 40, "l": 0, "b": 0},
+                    coloraxis_colorbar=dict(title=choro_label),
+                )
+                st.plotly_chart(fig_choro, use_container_width=True)
+            else:
+                st.info("County shapefile not available for choropleth map.")
+
+        with county_bar_col:
+            top_county_agg = (top_county_agg
+                              .sort_values("value", ascending=False)
+                              .head(20))
+            fig_county_bar = px.bar(
+                top_county_agg, x="value", y="CZ_NAME",
+                orientation="h",
+                labels={"value": choro_label, "CZ_NAME": "County / Zone"},
+                title=f"Top 20 counties — {hz_metric}",
+                color="value",
+                color_continuous_scale="Blues",
+            )
+            fig_county_bar.update_layout(
+                height=480, showlegend=False,
+                yaxis=dict(autorange="reversed"),
+                coloraxis_showscale=False,
+            )
+            st.plotly_chart(fig_county_bar, use_container_width=True)
+
+        # ── Hazard type × county pivot (shown when "All counties" selected) ──
+        if hz_county == "All counties":
+            st.markdown("**Hazard type breakdown per county (top 15 counties)**")
+            top15 = (top_county_agg.head(15)["CZ_NAME"].tolist())
+            pivot_df = dff[dff["CZ_NAME"].isin(top15)].copy()
+            if metric_col is None:
+                pivot = (pivot_df.groupby(["CZ_NAME", "HAZARD"])
+                                 .size()
+                                 .reset_index(name="value")
+                                 .pivot(index="CZ_NAME", columns="HAZARD", values="value")
+                                 .fillna(0).astype(int))
+            else:
+                pivot = (pivot_df.groupby(["CZ_NAME", "HAZARD"])[metric_col]
+                                 .sum()
+                                 .reset_index(name="value")
+                                 .pivot(index="CZ_NAME", columns="HAZARD", values="value")
+                                 .fillna(0).astype(int))
+            pivot = pivot.loc[pivot.sum(axis=1).sort_values(ascending=False).index]
+            pivot.columns.name = None
+            pivot.index.name = "County / Zone"
+            st.dataframe(pivot, use_container_width=True)
+
+        # ── Map — event locations ─────────────────────────────────────────────
+        st.markdown("---")
+        st.markdown("**Event locations**")
+        map_df = dff.dropna(subset=["BEGIN_LAT", "BEGIN_LON"]).copy()
+        map_df = map_df[
+            map_df["BEGIN_LAT"].between(24.0, 31.5) &
+            map_df["BEGIN_LON"].between(-87.7, -79.8)
+        ]
+
+        if map_df.empty:
+            st.info("No events with coordinates for this selection.")
+        else:
+            _hz_bmap_opts = {
+                "Streets (OpenStreetMap)": "open-street-map",
+                "Light (Carto)":           "carto-positron",
+                "Dark (Carto)":            "carto-darkmatter",
+            }
+            hz_bmap_style = st.selectbox(
+                "Basemap", options=list(_hz_bmap_opts.keys()),
+                index=1, key="hz_basemap", label_visibility="collapsed",
+            )
+
+            sample = map_df.sample(min(5000, len(map_df)), random_state=42)
+            fig_hz_map = px.scatter_mapbox(
+                sample,
+                lat="BEGIN_LAT", lon="BEGIN_LON",
+                color="HAZARD",
+                hover_data={
+                    "EVENT_TYPE": True,
+                    "CZ_NAME": True,
+                    "start_year": True,
+                    "ADJ_DAMAGE_PROPERTY": ":,.0f",
+                    "TOTAL_DEATHS": True,
+                    "BEGIN_LAT": False,
+                    "BEGIN_LON": False,
+                },
+                labels={
+                    "CZ_NAME": "County/Zone",
+                    "start_year": "Year",
+                    "ADJ_DAMAGE_PROPERTY": "Damage ($)",
+                    "TOTAL_DEATHS": "Deaths",
+                },
+                zoom=5.5,
+                center={"lat": 27.8, "lon": -81.5},
+                mapbox_style=_hz_bmap_opts[hz_bmap_style],
+                title=f"Event locations (up to 5,000 shown) — {hz_metric}",
+                height=520,
+            )
+            fig_hz_map.update_traces(marker=dict(size=5, opacity=0.7))
+            fig_hz_map.update_layout(margin={"r": 0, "t": 40, "l": 0, "b": 0},
+                                     legend=dict(font=dict(size=10)))
+            st.plotly_chart(fig_hz_map, use_container_width=True)
+
+        # ── Download ──────────────────────────────────────────────────────────
+        st.markdown("---")
+        dl_cols = [
+            "start_year", "EVENT_TYPE", "HAZARD", "CZ_NAME",
+            "ADJ_DAMAGE_PROPERTY", "TOTAL_DEATHS", "TOTAL_INJURIES",
+            "BEGIN_LAT", "BEGIN_LON",
+        ]
+        dl_hz = dff[dl_cols].rename(columns={
+            "start_year": "Year", "CZ_NAME": "County_Zone",
+            "ADJ_DAMAGE_PROPERTY": "Damage_USD_adj",
+        })
+        st.download_button(
+            label="Download filtered hazards data (CSV)",
+            data=dl_hz.to_csv(index=False).encode("utf-8"),
+            file_name=f"florida_hazards_{hz_year_range[0]}_{hz_year_range[1]}.csv",
+            mime="text/csv",
+            use_container_width=False,
+        )
 
 
 # ── Footer ────────────────────────────────────────────────────────────────────
