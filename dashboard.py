@@ -35,7 +35,9 @@ STATE_SHP  = os.path.join(_BASE, "data", "shp", "state",    "tl_2020_12_state.sh
 DEM_PATH      = os.path.join(_BASE, "data", "dem_florida_100m.tif")
 _wp_local     = os.path.join(_BASE, "data", "worldpop_wgs84")
 WORLDPOP_DIR  = _wp_local if os.path.isdir(_wp_local) else r"E:\2026\Datasets\worldpop-data\wgs84"
-HAZARDS_PATH  = os.path.join(_BASE, "data", "Florida_Hazards_1996-2024.parquet")
+_HAZARDS_LOCAL  = os.path.join(_BASE, "data", "Florida_Hazards_1996-2024.parquet")
+_HAZARDS_GITHUB = "https://raw.githubusercontent.com/BHarandi/Florida-population-elevation/main/data/Florida_Hazards_1996-2024.parquet"
+HAZARDS_PATH    = _HAZARDS_LOCAL if os.path.exists(_HAZARDS_LOCAL) else _HAZARDS_GITHUB
 
 # ── Infrastructure data paths ──────────────────────────────────────────────────
 # Primary source: GitHub raw URLs (public — works for everyone).
@@ -147,14 +149,18 @@ def load_data():
 
 @st.cache_data(show_spinner="Loading hazards data…")
 def load_hazards_data():
-    if not os.path.exists(HAZARDS_PATH):
+    _is_url = HAZARDS_PATH.startswith("http")
+    if not _is_url and not os.path.exists(HAZARDS_PATH):
         return None
     cols = [
         "GEOID", "CZ_NAME", "EVENT_TYPE", "HAZARD",
         "start_year", "BEGIN_LAT", "BEGIN_LON",
         "ADJ_DAMAGE_PROPERTY", "TOTAL_DEATHS", "TOTAL_INJURIES",
     ]
-    df = pd.read_parquet(HAZARDS_PATH, columns=cols)
+    try:
+        df = pd.read_parquet(HAZARDS_PATH, columns=cols)
+    except Exception:
+        return None
     df["start_year"] = df["start_year"].astype(int)
     df["ADJ_DAMAGE_PROPERTY"] = pd.to_numeric(df["ADJ_DAMAGE_PROPERTY"], errors="coerce").fillna(0)
     df["TOTAL_DEATHS"]        = pd.to_numeric(df["TOTAL_DEATHS"],        errors="coerce").fillna(0)
