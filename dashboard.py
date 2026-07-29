@@ -2563,9 +2563,9 @@ with tab6:
                 key="hz_metric",
             )
         with hz_f3:
-            all_hazards = sorted(df_hz["HAZARD"].dropna().unique())
-            hz_hazards = st.multiselect(
-                "Hazard type", all_hazards, default=all_hazards, key="hz_hazards",
+            all_event_types = sorted(df_hz["EVENT_TYPE"].dropna().unique())
+            hz_event_types = st.multiselect(
+                "Event type", all_event_types, default=all_event_types, key="hz_hazards",
             )
         with hz_f4:
             hz_county_opts = ["All counties"] + sorted(df_hz["CZ_NAME"].dropna().unique())
@@ -2577,7 +2577,7 @@ with tab6:
         dff = df_hz[
             (df_hz["start_year"] >= hz_year_range[0]) &
             (df_hz["start_year"] <= hz_year_range[1]) &
-            (df_hz["HAZARD"].isin(hz_hazards))
+            (df_hz["EVENT_TYPE"].isin(hz_event_types))
         ].copy()
         if hz_county != "All counties":
             dff = dff[dff["CZ_NAME"] == hz_county]
@@ -2672,15 +2672,15 @@ with tab6:
 
             with _det1:
                 _top_types = (
-                    dff_county.groupby("HAZARD").size()
+                    dff_county.groupby("EVENT_TYPE").size()
                     .reset_index(name="Count")
                     .sort_values("Count", ascending=False)
                     .head(10)
                 )
                 fig_det_bar = px.bar(
-                    _top_types, x="Count", y="HAZARD", orientation="h",
-                    title="Hazard types",
-                    labels={"HAZARD": "Hazard", "Count": "# Events"},
+                    _top_types, x="Count", y="EVENT_TYPE", orientation="h",
+                    title="Event types",
+                    labels={"EVENT_TYPE": "Event type", "Count": "# Events"},
                     color="Count", color_continuous_scale="Reds",
                 )
                 fig_det_bar.update_layout(
