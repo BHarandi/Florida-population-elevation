@@ -2678,16 +2678,16 @@ with tab6:
                     .head(10)
                 )
                 fig_det_bar = px.bar(
-                    _top_types, x="Count", y="EVENT_TYPE", orientation="h",
+                    _top_types, x="EVENT_TYPE", y="Count",
                     title="Event types",
                     labels={"EVENT_TYPE": "Event type", "Count": "# Events"},
                     color="Count", color_continuous_scale="Reds",
                 )
                 fig_det_bar.update_layout(
                     height=360, showlegend=False,
-                    yaxis=dict(autorange="reversed"),
                     coloraxis_showscale=False,
-                    margin={"t": 40, "b": 10},
+                    margin={"t": 40, "b": 80},
+                    xaxis=dict(tickangle=-35),
                 )
                 st.plotly_chart(fig_det_bar, use_container_width=True)
 
