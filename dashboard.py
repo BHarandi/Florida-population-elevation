@@ -35,7 +35,7 @@ STATE_SHP  = os.path.join(_BASE, "data", "shp", "state",    "tl_2020_12_state.sh
 DEM_PATH      = os.path.join(_BASE, "data", "dem_florida_100m.tif")
 _wp_local     = os.path.join(_BASE, "data", "worldpop_wgs84")
 WORLDPOP_DIR  = _wp_local if os.path.isdir(_wp_local) else r"E:\2026\Datasets\worldpop-data\wgs84"
-HAZARDS_PATH  = r"E:\2026\Datasets\Hazards\Cleaned_NCEI_Storm_Database_Details_1996-2024.parquet"
+HAZARDS_PATH  = os.path.join(_BASE, "data", "Cleaned_NCEI_Storm_Database_Details_1996-2024.parquet")
 
 # ── Infrastructure data paths ──────────────────────────────────────────────────
 # Primary source: GitHub raw URLs (public — works for everyone).
@@ -2732,6 +2732,72 @@ with tab6:
             pivot.columns.name = None
             pivot.index.name = "County / Zone"
             st.dataframe(pivot, use_container_width=True)
+
+        # ── Number of hazards per county — map + table ───────────────────────
+        st.markdown("---")
+        st.markdown("**Number of hazard events per county**")
+
+        county_event_count = (
+            dff.groupby("CZ_NAME")
+            .agg(
+                Total_Events=("EVENT_TYPE", "count"),
+                Property_Damage=("ADJ_DAMAGE_PROPERTY", "sum"),
+                Deaths=("TOTAL_DEATHS", "sum"),
+                Injuries=("TOTAL_INJURIES", "sum"),
+            )
+            .reset_index()
+            .rename(columns={"CZ_NAME": "County / Zone"})
+            .sort_values("Total_Events", ascending=False)
+            .reset_index(drop=True)
+        )
+
+        # Map: event count choropleth
+        if geo_json_hz is not None and county_df_hz is not None:
+            _cnt_geoid = (
+                dff.groupby("GEOID").size().reset_index(name="Total_Events")
+            )
+            _cnt_geoid = _cnt_geoid.merge(
+                county_df_hz.rename(columns={"GEOID10": "GEOID", "NAME10": "County"}),
+                on="GEOID", how="left",
+            )
+            fig_cnt_map = px.choropleth_mapbox(
+                _cnt_geoid,
+                geojson=geo_json_hz,
+                locations="GEOID",
+                featureidkey="properties.GEOID10",
+                color="Total_Events",
+                color_continuous_scale="Oranges",
+                hover_name="County",
+                hover_data={"Total_Events": ":,", "GEOID": False},
+                labels={"Total_Events": "# Events"},
+                mapbox_style="carto-positron",
+                zoom=5.5,
+                center={"lat": 27.8, "lon": -81.5},
+                title="Total hazard events by county",
+                height=480,
+            )
+            fig_cnt_map.update_layout(
+                margin={"r": 0, "t": 40, "l": 0, "b": 0},
+                coloraxis_colorbar=dict(title="# Events"),
+            )
+            st.plotly_chart(fig_cnt_map, use_container_width=True)
+
+        # Table
+        county_event_count["Property_Damage"] = county_event_count["Property_Damage"].apply(
+            lambda x: f"${x/1e6:.1f} M" if x >= 1e6 else f"${x:,.0f}"
+        )
+        county_event_count["Deaths"]   = county_event_count["Deaths"].astype(int)
+        county_event_count["Injuries"] = county_event_count["Injuries"].astype(int)
+        county_event_count.index = county_event_count.index + 1
+        county_event_count.index.name = "Rank"
+
+        st.dataframe(
+            county_event_count.rename(columns={
+                "Total_Events": "# Hazard Events",
+                "Property_Damage": "Property Damage",
+            }),
+            use_container_width=True,
+        )
 
         # ── Map — event locations ─────────────────────────────────────────────
         st.markdown("---")
