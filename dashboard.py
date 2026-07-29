@@ -138,36 +138,6 @@ MONTH_NAMES = {
 }
 MONTH_NUM = {v: k for k, v in MONTH_NAMES.items()}
 
-HAZARD_NAMES = {
-    "cfl": "Coastal Flood",
-    "cw":  "Cold / Wind Chill",
-    "df":  "Debris Flow",
-    "dr":  "Drought",
-    "ew":  "Extreme Wind",
-    "fc":  "Funnel Cloud",
-    "ff":  "Frost / Freeze",
-    "fg":  "Fog",
-    "fl":  "Flood",
-    "hl":  "Hail",
-    "hs":  "High Surf",
-    "hw":  "Heat",
-    "lt":  "Astronomical Low Tide",
-    "ltn": "Lightning",
-    "pfl": "Flash Flood",
-    "rc":  "Rip Current",
-    "rn":  "Rain",
-    "se":  "Seiche",
-    "sl":  "Sleet",
-    "sm":  "Smoke",
-    "sst": "Storm Surge / Tide",
-    "tc":  "Tropical Cyclone",
-    "tn":  "Tornado",
-    "tw":  "Thunderstorm Wind",
-    "wf":  "Wildfire",
-    "wp":  "Waterspout",
-    "ws":  "Winter Storm",
-    "ww":  "Winter Weather",
-}
 
 
 # ── Data loaders ──────────────────────────────────────────────────────────────
@@ -196,7 +166,12 @@ def load_hazards_data():
     df["ADJ_DAMAGE_PROPERTY"] = pd.to_numeric(df["ADJ_DAMAGE_PROPERTY"], errors="coerce").fillna(0)
     df["TOTAL_DEATHS"]        = pd.to_numeric(df["TOTAL_DEATHS"],        errors="coerce").fillna(0)
     df["TOTAL_INJURIES"]      = pd.to_numeric(df["TOTAL_INJURIES"],      errors="coerce").fillna(0)
-    df["HAZARD"] = df["HAZARD"].map(HAZARD_NAMES).fillna(df["HAZARD"])
+    hazard_name_map = (
+        df.dropna(subset=["HAZARD", "EVENT_TYPE"])
+        .groupby("HAZARD")["EVENT_TYPE"]
+        .agg(lambda x: x.value_counts().index[0])
+    )
+    df["HAZARD"] = df["HAZARD"].map(hazard_name_map).fillna(df["HAZARD"])
     return df
 
 
