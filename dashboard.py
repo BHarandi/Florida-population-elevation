@@ -138,6 +138,37 @@ MONTH_NAMES = {
 }
 MONTH_NUM = {v: k for k, v in MONTH_NAMES.items()}
 
+HAZARD_NAMES = {
+    "cfl": "Coastal Flood",
+    "cw":  "Cold / Wind Chill",
+    "df":  "Debris Flow",
+    "dr":  "Drought",
+    "ew":  "Extreme Wind",
+    "fc":  "Funnel Cloud",
+    "ff":  "Flash Flood",
+    "fg":  "Dense Fog",
+    "fl":  "Flood",
+    "hl":  "Hail",
+    "hs":  "Heavy Snow",
+    "hw":  "High Wind",
+    "lt":  "Lightning",
+    "ltn": "Lightning",
+    "pfl": "Lakeshore Flood",
+    "rc":  "Rip Current",
+    "rn":  "Heavy Rain",
+    "se":  "Seiche",
+    "sl":  "Sleet",
+    "sm":  "Dense Smoke",
+    "sst": "Storm Surge / Tide",
+    "tc":  "Tropical Cyclone",
+    "tn":  "Tornado",
+    "tw":  "Tsunami",
+    "wf":  "Wildfire",
+    "wp":  "Waterspout",
+    "ws":  "Winter Storm",
+    "ww":  "Winter Weather",
+}
+
 
 # ── Data loaders ──────────────────────────────────────────────────────────────
 @st.cache_data
@@ -165,6 +196,7 @@ def load_hazards_data():
     df["ADJ_DAMAGE_PROPERTY"] = pd.to_numeric(df["ADJ_DAMAGE_PROPERTY"], errors="coerce").fillna(0)
     df["TOTAL_DEATHS"]        = pd.to_numeric(df["TOTAL_DEATHS"],        errors="coerce").fillna(0)
     df["TOTAL_INJURIES"]      = pd.to_numeric(df["TOTAL_INJURIES"],      errors="coerce").fillna(0)
+    df["HAZARD"] = df["HAZARD"].map(HAZARD_NAMES).fillna(df["HAZARD"])
     return df
 
 
