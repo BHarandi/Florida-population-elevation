@@ -2693,20 +2693,20 @@ with tab6:
 
             with _det2:
                 _ts_county = (
-                    dff_county.groupby("start_year").size()
+                    dff_county.groupby(["start_year", "EVENT_TYPE"]).size()
                     .reset_index(name="Count")
                 )
                 fig_det_ts = px.line(
-                    _ts_county, x="start_year", y="Count",
-                    title="Events per year",
-                    labels={"start_year": "Year", "Count": "# Events"},
+                    _ts_county, x="start_year", y="Count", color="EVENT_TYPE",
+                    title="Events per year by type",
+                    labels={"start_year": "Year", "Count": "# Events", "EVENT_TYPE": "Event type"},
                     markers=True,
                 )
-                fig_det_ts.update_traces(line_color="#c0392b", line_width=2,
-                                          marker=dict(size=5))
+                fig_det_ts.update_traces(line_width=2, marker=dict(size=5))
                 fig_det_ts.update_layout(
                     height=360, plot_bgcolor="#f8f9fa",
                     margin={"t": 40, "b": 10},
+                    legend=dict(font=dict(size=10), title="Event type"),
                 )
                 st.plotly_chart(fig_det_ts, use_container_width=True)
 
