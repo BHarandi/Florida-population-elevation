@@ -35,7 +35,7 @@ STATE_SHP  = os.path.join(_BASE, "data", "shp", "state",    "tl_2020_12_state.sh
 DEM_PATH      = os.path.join(_BASE, "data", "dem_florida_100m.tif")
 _wp_local     = os.path.join(_BASE, "data", "worldpop_wgs84")
 WORLDPOP_DIR  = _wp_local if os.path.isdir(_wp_local) else r"E:\2026\Datasets\worldpop-data\wgs84"
-HAZARDS_PATH  = os.path.join(_BASE, "data", "Cleaned_NCEI_Storm_Database_Details_1996-2024.parquet")
+HAZARDS_PATH  = os.path.join(_BASE, "data", "Florida_Hazards_1996-2024.parquet")
 
 # ── Infrastructure data paths ──────────────────────────────────────────────────
 # Primary source: GitHub raw URLs (public — works for everyone).
@@ -150,14 +150,11 @@ def load_hazards_data():
     if not os.path.exists(HAZARDS_PATH):
         return None
     cols = [
-        "GEOID", "STATE_FIPS", "CZ_NAME", "EVENT_TYPE", "HAZARD",
-        "start_year", "BEGIN_DATETIME", "BEGIN_LAT", "BEGIN_LON",
-        "DAMAGE_PROPERTY", "ADJ_DAMAGE_PROPERTY", "TOTAL_ADJ_DAMAGE",
-        "DEATHS_DIRECT", "DEATHS_INDIRECT", "TOTAL_DEATHS",
-        "INJURIES_DIRECT", "INJURIES_INDIRECT", "TOTAL_INJURIES",
+        "GEOID", "CZ_NAME", "EVENT_TYPE", "HAZARD",
+        "start_year", "BEGIN_LAT", "BEGIN_LON",
+        "ADJ_DAMAGE_PROPERTY", "TOTAL_DEATHS", "TOTAL_INJURIES",
     ]
     df = pd.read_parquet(HAZARDS_PATH, columns=cols)
-    df = df[df["STATE_FIPS"] == "12"].copy()   # Florida only
     df["start_year"] = df["start_year"].astype(int)
     df["ADJ_DAMAGE_PROPERTY"] = pd.to_numeric(df["ADJ_DAMAGE_PROPERTY"], errors="coerce").fillna(0)
     df["TOTAL_DEATHS"]        = pd.to_numeric(df["TOTAL_DEATHS"],        errors="coerce").fillna(0)
@@ -2751,7 +2748,7 @@ with tab6:
             .reset_index(drop=True)
         )
 
-        # Map: event count choropleth
+        # Map: event count choropleth (clickable)
         if geo_json_hz is not None and county_df_hz is not None:
             _cnt_geoid = (
                 dff.groupby("GEOID").size().reset_index(name="Total_Events")
@@ -2773,14 +2770,109 @@ with tab6:
                 mapbox_style="carto-positron",
                 zoom=5.5,
                 center={"lat": 27.8, "lon": -81.5},
-                title="Total hazard events by county",
+                title="Total hazard events by county — click a county for details",
                 height=480,
             )
             fig_cnt_map.update_layout(
                 margin={"r": 0, "t": 40, "l": 0, "b": 0},
                 coloraxis_colorbar=dict(title="# Events"),
             )
-            st.plotly_chart(fig_cnt_map, use_container_width=True)
+            _cnt_map_event = st.plotly_chart(
+                fig_cnt_map, use_container_width=True,
+                on_select="rerun", selection_mode="points",
+                key="hz_cnt_map",
+            )
+
+            # Handle county click
+            _clicked_hz_geoid = None
+            if (_cnt_map_event and _cnt_map_event.selection
+                    and _cnt_map_event.selection.get("points")):
+                _clicked_hz_geoid = _cnt_map_event.selection["points"][0].get("location")
+
+            if _clicked_hz_geoid and county_df_hz is not None:
+                _geoid_name_map = dict(zip(county_df_hz["GEOID10"], county_df_hz["NAME10"]))
+                _clicked_hz_name = _geoid_name_map.get(_clicked_hz_geoid, "")
+                if _clicked_hz_name:
+                    dff_county = dff[dff["CZ_NAME"] == _clicked_hz_name]
+                    st.markdown(f"### {_clicked_hz_name} County — hazard details")
+
+                    # KPI row
+                    _ck1, _ck2, _ck3, _ck4 = st.columns(4)
+                    _ck1.metric("Total events",      f"{len(dff_county):,}")
+                    _ck2.metric("Property damage",   f"${dff_county['ADJ_DAMAGE_PROPERTY'].sum()/1e6:.1f} M")
+                    _ck3.metric("Deaths",            f"{int(dff_county['TOTAL_DEATHS'].sum()):,}")
+                    _ck4.metric("Injuries",          f"{int(dff_county['TOTAL_INJURIES'].sum()):,}")
+
+                    _det_col1, _det_col2 = st.columns(2)
+
+                    # Top event types bar chart
+                    with _det_col1:
+                        _top_types = (
+                            dff_county.groupby("EVENT_TYPE")
+                            .size()
+                            .reset_index(name="Count")
+                            .sort_values("Count", ascending=False)
+                            .head(10)
+                        )
+                        fig_det_bar = px.bar(
+                            _top_types, x="Count", y="EVENT_TYPE",
+                            orientation="h",
+                            title=f"Top event types — {_clicked_hz_name}",
+                            labels={"EVENT_TYPE": "Event type", "Count": "# Events"},
+                            color="Count", color_continuous_scale="Oranges",
+                        )
+                        fig_det_bar.update_layout(
+                            height=380, showlegend=False,
+                            yaxis=dict(autorange="reversed"),
+                            coloraxis_showscale=False,
+                            margin={"t": 50, "b": 10},
+                        )
+                        st.plotly_chart(fig_det_bar, use_container_width=True)
+
+                    # Events per year line chart
+                    with _det_col2:
+                        _ts_county = (
+                            dff_county.groupby("start_year")
+                            .size()
+                            .reset_index(name="Count")
+                        )
+                        fig_det_ts = px.line(
+                            _ts_county, x="start_year", y="Count",
+                            title=f"Events per year — {_clicked_hz_name}",
+                            labels={"start_year": "Year", "Count": "# Events"},
+                            markers=True,
+                        )
+                        fig_det_ts.update_traces(line_color="#e8610a", line_width=2,
+                                                  marker=dict(size=5))
+                        fig_det_ts.update_layout(
+                            height=380,
+                            plot_bgcolor="#f8f9fa",
+                            margin={"t": 50, "b": 10},
+                        )
+                        st.plotly_chart(fig_det_ts, use_container_width=True)
+
+                    # Hazard type breakdown table
+                    _hz_breakdown = (
+                        dff_county.groupby("HAZARD")
+                        .agg(Events=("EVENT_TYPE", "count"),
+                             Damage=("ADJ_DAMAGE_PROPERTY", "sum"),
+                             Deaths=("TOTAL_DEATHS", "sum"),
+                             Injuries=("TOTAL_INJURIES", "sum"))
+                        .sort_values("Events", ascending=False)
+                        .reset_index()
+                    )
+                    _hz_breakdown["Damage"] = _hz_breakdown["Damage"].apply(
+                        lambda x: f"${x/1e6:.1f} M" if x >= 1e6 else f"${x:,.0f}"
+                    )
+                    _hz_breakdown["Deaths"]   = _hz_breakdown["Deaths"].astype(int)
+                    _hz_breakdown["Injuries"] = _hz_breakdown["Injuries"].astype(int)
+                    st.dataframe(
+                        _hz_breakdown.rename(columns={"HAZARD": "Hazard type",
+                                                       "Damage": "Property Damage"}),
+                        use_container_width=True, hide_index=True,
+                    )
+            else:
+                st.caption("Click a county on the map to see its hazard details.")
 
         # Table
         county_event_count["Property_Damage"] = county_event_count["Property_Damage"].apply(
