@@ -1,7 +1,7 @@
 """
 Florida Population by Elevation — Streamlit Dashboard
 Author: Bellah Harandi
-Date: July-August 2026
+Date: July 2026
 
 Run: python -m streamlit run dashboard.py
 """
@@ -2005,14 +2005,9 @@ with tab3:
                     f"Local tidal datums (NAVD88): {', '.join(_datum_bits)}."
                 )
 
-    # ── Population at risk — computed pixel-by-pixel from DEM + population raster ──
+    # ── Population at risk from parquet ───────────────────────────────────────
     st.markdown("---")
     st.markdown(f"**Population at risk — {slr_area} ({slr_year}) at {_scenario_desc}**")
-
-    _raster_pop_at_risk, _raster_pop_total = (
-        compute_population_at_risk(slr_geom_wkt, slr_year, slr_m)
-        if slr_geom_wkt is not None else (None, None)
-    )
 
     scope_slr = "Statewide" if slr_area == "Florida (Statewide)" else "County"
     at_risk_df = df_all[
@@ -2022,35 +2017,22 @@ with tab3:
     if scope_slr == "County":
         at_risk_df = at_risk_df[at_risk_df["County_Name"] == slr_area]
 
-    if _raster_pop_at_risk is not None:
-        at_risk_pop   = _raster_pop_at_risk
-        total_pop_slr = _raster_pop_total
-        _risk_source  = "computed directly from the DEM and population rasters, pixel by pixel"
-    else:
-        at_risk_pop   = at_risk_df[at_risk_df["Elev_Max_m"] <= slr_m]["Population"].sum()
-        total_pop_slr = at_risk_df["Population"].sum()
-        _risk_source  = "estimated from pre-aggregated elevation bands (raster data unavailable)"
-    pct_at_risk = (at_risk_pop / total_pop_slr * 100) if total_pop_slr > 0 else 0
+    at_risk_df["at_risk"] = at_risk_df["Elev_Max_m"] <= slr_m
+    at_risk_pop   = at_risk_df[at_risk_df["at_risk"]]["Population"].sum()
+    total_pop_slr = at_risk_df["Population"].sum()
+    pct_at_risk   = (at_risk_pop / total_pop_slr * 100) if total_pop_slr > 0 else 0
 
     r1, r2, r3 = st.columns(3)
     r1.metric("Population at risk", f"{at_risk_pop:,.0f}")
     r2.metric("Total population",   f"{total_pop_slr:,.0f}")
     r3.metric("% at risk",          f"{pct_at_risk:.1f}%")
-    st.caption(f"Population at risk is {_risk_source}.")
 
     at_risk_display = to_display_bands(at_risk_df.copy(), slr_use_feet)
     at_risk_display["Elev_Band"] = pd.Categorical(
         at_risk_display["Elev_Band"], categories=slr_band_order, ordered=True)
     at_risk_display = at_risk_display.sort_values("Elev_Band")
-    # A band counts as fully "At risk" only once its whole range is submerged;
-    # if the flood level falls partway through a band, flag it rather than
-    # silently marking the whole band "Safe" (the table below is for browsing
-    # the distribution — the headline numbers above are the precise ones).
-    at_risk_display["Status"] = np.select(
-        [at_risk_display["Elev_Max_m"] <= slr_m, at_risk_display["Elev_Min_m"] < slr_m],
-        ["At risk", "Partially at risk"],
-        default="Safe",
-    )
+    at_risk_display["Status"] = at_risk_display["at_risk"].map(
+        {True: "At risk", False: "Safe"})
     st.dataframe(
         at_risk_display[["Elev_Band", "Population", "Pct_of_State", "Status"]]
         .rename(columns={"Elev_Band": f"Elevation ({slr_unit_label})", "Pct_of_State": "% State"})
