@@ -12,6 +12,31 @@ import geopandas as gpd
 import plotly.express as px
 import plotly.graph_objects as go
 from shapely.geometry import shape
+
+# Plotly renamed the token-free tile-map traces from *mapbox to *map starting
+# around 5.24/6.0 (Scattermapbox still works but is deprecated). Resolve the
+# trace class and layout key at import time so the app keeps working no matter
+# which plotly release actually gets installed.
+if hasattr(go, "Scattermapbox"):
+    ScatterMapTrace = go.Scattermapbox
+    _MAP_LAYOUT_KEY = "mapbox"
+else:
+    ScatterMapTrace = go.Scattermap
+    _MAP_LAYOUT_KEY = "map"
+
+
+def _map_layout(**kwargs):
+    """Build the {'mapbox': {...}} / {'map': {...}} kwarg for fig.update_layout()."""
+    return {_MAP_LAYOUT_KEY: kwargs}
+
+
+# Same *mapbox → *map rename applies to Plotly Express's choropleth_mapbox.
+if hasattr(px, "choropleth_mapbox"):
+    _choropleth_map_fn = px.choropleth_mapbox
+    _MAP_STYLE_KWARG = "mapbox_style"
+else:
+    _choropleth_map_fn = px.choropleth_map
+    _MAP_STYLE_KWARG = "map_style"
 import numpy as np
 import rasterio
 from rasterio.mask import mask as rio_mask
@@ -38,6 +63,15 @@ WORLDPOP_DIR  = _wp_local if os.path.isdir(_wp_local) else r"E:\2026\Datasets\wo
 _HAZARDS_LOCAL  = os.path.join(_BASE, "data", "Florida_Hazards_1996-2024.parquet")
 _HAZARDS_GITHUB = "https://raw.githubusercontent.com/BHarandi/Florida-population-elevation/main/data/Florida_Hazards_1996-2024.parquet"
 HAZARDS_PATH    = _HAZARDS_LOCAL if os.path.exists(_HAZARDS_LOCAL) else _HAZARDS_GITHUB
+
+# ── Tide datums (NAVD88) + extreme sea level (ESL) return-level data ──────────
+_TIDE_LOCAL  = os.path.join(_BASE, "data", "tide", "station_datums_navd88_all.csv")
+_TIDE_GITHUB = "https://raw.githubusercontent.com/BHarandi/Florida-population-elevation/main/data/tide/station_datums_navd88_all.csv"
+TIDE_DATUMS_PATH = _TIDE_LOCAL if os.path.exists(_TIDE_LOCAL) else _TIDE_GITHUB
+
+_ESL_LOCAL  = os.path.join(_BASE, "data", "esl_return_levels_fl.parquet")
+_ESL_GITHUB = "https://raw.githubusercontent.com/BHarandi/Florida-population-elevation/main/data/esl_return_levels_fl.parquet"
+ESL_PATH    = _ESL_LOCAL if os.path.exists(_ESL_LOCAL) else _ESL_GITHUB
 
 # ── Infrastructure data paths ──────────────────────────────────────────────────
 # Primary source: GitHub raw URLs (public — works for everyone).
@@ -138,6 +172,22 @@ MONTH_NAMES = {
 }
 MONTH_NUM = {v: k for k, v in MONTH_NAMES.items()}
 
+# ESL return-level dataset (BAYEX-TG-EXT): 4 storm-tide construction methods,
+# each with a central estimate + lower/upper bound, values in meters relative
+# to local MSL (see build_tide_esl_data.py for how the source NetCDF was
+# filtered to Florida and reshaped into esl_return_levels_fl.parquet).
+ESL_METHODS = {
+    "Convolution (tide × storm surge)": "conv",
+    "MHW + storm surge":                     "mhw",
+    "MHHW + storm surge":                    "mhhw",
+    "HAT + storm surge":                     "hat",
+}
+ESL_STATS = {
+    "Best estimate":             "central",
+    "Lower bound (conservative)": "lower",
+    "Upper bound (conservative)": "upper",
+}
+
 
 
 # ── Data loaders ──────────────────────────────────────────────────────────────
@@ -173,6 +223,47 @@ def load_hazards_data():
     )
     df["HAZARD"] = df["HAZARD"].map(hazard_name_map).fillna(df["HAZARD"])
     return df
+
+
+@st.cache_data(show_spinner="Loading tide station datums…")
+def load_tide_datums():
+    """NOAA CO-OPS tidal datums (MHHW/MSL/MLLW/…) referenced to NAVD88, per station."""
+    _is_url = TIDE_DATUMS_PATH.startswith("http")
+    if not _is_url and not os.path.exists(TIDE_DATUMS_PATH):
+        return None
+    try:
+        df = pd.read_csv(TIDE_DATUMS_PATH)
+    except Exception:
+        return None
+    return df.dropna(subset=["MSL"])  # MSL needed to reference ESL data to NAVD88
+
+
+@st.cache_data(show_spinner="Loading extreme sea level data…")
+def load_esl_data():
+    """BAYEX-TG-EXT storm-tide return levels for Florida (meters relative to MSL)."""
+    _is_url = ESL_PATH.startswith("http")
+    if not _is_url and not os.path.exists(ESL_PATH):
+        return None
+    try:
+        return pd.read_parquet(ESL_PATH)
+    except Exception:
+        return None
+
+
+def _nearest_row(df, lat_col, lon_col, lat, lon):
+    """Row in df whose (lat_col, lon_col) is closest to (lat, lon) — planar distance,
+    accurate enough at Florida's scale."""
+    d2 = (df[lat_col] - lat) ** 2 + (df[lon_col] - lon) ** 2
+    return df.loc[d2.idxmin()]
+
+
+def _haversine_km(lat1, lon1, lat2, lon2):
+    r = 6371.0
+    p1, p2 = np.radians(lat1), np.radians(lat2)
+    dphi = np.radians(lat2 - lat1)
+    dlmb = np.radians(lon2 - lon1)
+    a = np.sin(dphi / 2) ** 2 + np.cos(p1) * np.cos(p2) * np.sin(dlmb / 2) ** 2
+    return r * 2 * np.arcsin(np.sqrt(a))
 
 
 @st.cache_data
@@ -1211,7 +1302,7 @@ with tab2:
                     boundary_lons, boundary_lats = [], []
 
                 fig_zoom = go.Figure()
-                fig_zoom.add_trace(go.Scattermapbox(
+                fig_zoom.add_trace(ScatterMapTrace(
                     lon=boundary_lons,
                     lat=boundary_lats,
                     mode="lines",
@@ -1242,7 +1333,7 @@ with tab2:
 
                 # Invisible hover-grid — lets user see elevation on mouse-over
                 if dem_hover is not None and show_dem:
-                    fig_zoom.add_trace(go.Scattermapbox(
+                    fig_zoom.add_trace(ScatterMapTrace(
                         lon=dem_hover["lons"],
                         lat=dem_hover["lats"],
                         mode="markers",
@@ -1254,7 +1345,7 @@ with tab2:
                     ))
 
                 fig_zoom.update_layout(
-                    mapbox=mapbox_cfg,
+                    **_map_layout(**mapbox_cfg),
                     height=440,
                     margin={"r": 0, "t": 10, "l": 0, "b": 0},
                     uirevision=map_county,  # preserve user zoom/pan unless county changes
@@ -1287,13 +1378,13 @@ with tab2:
                     st.info(_pop_err or f"WorldPop raster for {map_year} not available.")
                 else:
                     fig_dens = go.Figure()
-                    fig_dens.add_trace(go.Scattermapbox(
+                    fig_dens.add_trace(ScatterMapTrace(
                         lon=boundary_lons, lat=boundary_lats, mode="lines",
                         line=dict(color="black", width=2.5),
                         hoverinfo="skip", showlegend=False,
                     ))
                     if pop_hover:
-                        fig_dens.add_trace(go.Scattermapbox(
+                        fig_dens.add_trace(ScatterMapTrace(
                             lon=pop_hover["lons"], lat=pop_hover["lats"],
                             mode="markers",
                             marker=dict(size=14, color="rgba(0,0,0,0)"),
@@ -1313,7 +1404,7 @@ with tab2:
                         "below": "traces",
                     }] if show_dens else []
                     fig_dens.update_layout(
-                        mapbox=dict(
+                        **_map_layout(
                             style=pop_dens_style,
                             zoom=zoom_level,
                             center={"lat": center_lat, "lon": center_lon},
@@ -1414,7 +1505,7 @@ with tab2:
 
                     fig_state = go.Figure()
                     for lons, lats in state_rings:
-                        fig_state.add_trace(go.Scattermapbox(
+                        fig_state.add_trace(ScatterMapTrace(
                             lon=lons, lat=lats, mode="lines",
                             line=dict(color="black", width=2),
                             hoverinfo="skip", showlegend=False,
@@ -1438,7 +1529,7 @@ with tab2:
                         }]
 
                     if dem_hover is not None and show_state_dem:
-                        fig_state.add_trace(go.Scattermapbox(
+                        fig_state.add_trace(ScatterMapTrace(
                             lon=dem_hover["lons"], lat=dem_hover["lats"],
                             mode="markers",
                             marker=dict(size=14, color="rgba(0,0,0,0)"),
@@ -1448,7 +1539,7 @@ with tab2:
                         ))
 
                     fig_state.update_layout(
-                        mapbox=mapbox_cfg_state,
+                        **_map_layout(**mapbox_cfg_state),
                         height=480,
                         margin={"r": 0, "t": 10, "l": 0, "b": 0},
                         uirevision="state_dem",
@@ -1483,13 +1574,13 @@ with tab2:
                 else:
                     fig_dens_s = go.Figure()
                     for lons, lats in state_rings:
-                        fig_dens_s.add_trace(go.Scattermapbox(
+                        fig_dens_s.add_trace(ScatterMapTrace(
                             lon=lons, lat=lats, mode="lines",
                             line=dict(color="black", width=2),
                             hoverinfo="skip", showlegend=False,
                         ))
                     if pop_hover_s:
-                        fig_dens_s.add_trace(go.Scattermapbox(
+                        fig_dens_s.add_trace(ScatterMapTrace(
                             lon=pop_hover_s["lons"], lat=pop_hover_s["lats"],
                             mode="markers",
                             marker=dict(size=14, color="rgba(0,0,0,0)"),
@@ -1509,7 +1600,7 @@ with tab2:
                         "below": "traces",
                     }] if show_dens_s else []
                     fig_dens_s.update_layout(
-                        mapbox=dict(
+                        **_map_layout(
                             style=pop_dens_style_s,
                             zoom=5.5,
                             center={"lat": 27.8, "lon": -81.5},
@@ -1663,21 +1754,43 @@ with tab3:
             "Year", all_years, index=len(all_years) - 1, key="slr_year",
         )
 
-        # Read unit toggle first (default Feet) so slider range is correct
+        esl_df  = load_esl_data()
+        tide_df = load_tide_datums()
+        esl_available = esl_df is not None and tide_df is not None
+
+        _slr_mode_options = ["Manual sea level rise"]
+        if esl_available:
+            _slr_mode_options.append("Extreme sea level (tide + storm surge)")
+        slr_mode = st.radio("Flood scenario", _slr_mode_options, key="slr_mode")
+        if not esl_available:
+            st.caption("Tide/ESL data not found — only manual sea level rise is available.")
+
+        # Read unit toggle first (default Feet) so slider range/labels are correct
         slr_use_meters = st.session_state.get("slr_unit_toggle", False)
         slr_use_feet   = not slr_use_meters
+        slr_band_order = BAND_ORDER_FT if slr_use_feet else BAND_ORDER_M
+        slr_unit_label = "elevation above MSL (ft)" if slr_use_feet else "elevation above MSL (m)"
 
-        if slr_use_feet:
-            slr_ft    = st.slider("Sea level rise (ft)", 0.0, 60.0, 1.0, 0.5, key="slr_slider")
-            slr_m     = slr_ft / 3.28084
-            slr_label = f"{slr_ft:.1f} ft"
-            slr_band_order = BAND_ORDER_FT
-            slr_unit_label = "elevation above MSL (ft)"
+        if slr_mode == "Manual sea level rise":
+            if slr_use_feet:
+                slr_ft    = st.slider("Sea level rise (ft)", 0.0, 60.0, 1.0, 0.5, key="slr_slider")
+                slr_m     = slr_ft / 3.28084
+                slr_label = f"{slr_ft:.1f} ft"
+            else:
+                slr_m     = st.slider("Sea level rise (m)", 0.0, 60.0, 0.3, 0.1, key="slr_slider")
+                slr_label = f"{slr_m:.1f} m"
         else:
-            slr_m     = st.slider("Sea level rise (m)", 0.0, 60.0, 0.3, 0.1, key="slr_slider")
-            slr_label = f"{slr_m:.1f} m"
-            slr_band_order = BAND_ORDER_M
-            slr_unit_label = "elevation above MSL (m)"
+            esl_method_label = st.selectbox(
+                "Storm-tide method", list(ESL_METHODS.keys()), index=2, key="esl_method",
+            )
+            esl_stat_label = st.selectbox(
+                "Estimate", list(ESL_STATS.keys()), index=0, key="esl_stat",
+            )
+            esl_rp = st.slider(
+                "Return period (years)", 2, 1000, 100, key="esl_rp",
+                help="How often a storm tide of this height is expected to occur, on average.",
+            )
+            slr_m, slr_label = None, None  # resolved below, once the area's center point is known
 
         # Unit toggle — below the slider
         u_left, u_mid, u_right = st.columns([2, 1, 2])
@@ -1720,6 +1833,38 @@ with tab3:
         else:
             slr_geom_wkt = None
 
+    # ── Resolve extreme-sea-level scenario to a NAVD88 elevation ───────────────
+    slr_station_info = None
+    if slr_mode != "Manual sea level rise" and slr_geom_wkt is not None:
+        _nearest_station = _nearest_row(tide_df, "Lat", "Lon", slr_center["lat"], slr_center["lon"])
+        _msl_navd88 = float(_nearest_station["MSL"])
+
+        _esl_method = ESL_METHODS[esl_method_label]
+        _esl_stat   = ESL_STATS[esl_stat_label]
+        _esl_col    = f"esl_{_esl_method}_{_esl_stat}"
+        _esl_rows   = esl_df[esl_df["return_period"] == esl_rp]
+        _nearest_site  = _nearest_row(_esl_rows, "lat", "lon", slr_center["lat"], slr_center["lon"])
+        _esl_above_msl = float(_nearest_site[_esl_col])
+
+        slr_m     = _esl_above_msl + _msl_navd88
+        slr_ft    = slr_m * 3.28084
+        slr_label = f"{esl_rp}-yr {esl_method_label} ({esl_stat_label}) — {slr_m:.2f} m / {slr_ft:.1f} ft NAVD88"
+
+        slr_station_info = {
+            "name":    _nearest_station["StationName"],
+            "dist_km": _haversine_km(slr_center["lat"], slr_center["lon"],
+                                      _nearest_station["Lat"], _nearest_station["Lon"]),
+            "mhhw":    _nearest_station.get("MHHW"),
+            "msl":     _msl_navd88,
+            "mllw":    _nearest_station.get("MLLW"),
+        }
+    if slr_m is None:
+        slr_m, slr_label = 0.0, "0.0 m (no station data available)"
+
+    _scenario_desc = (
+        f"+{slr_label} sea level rise" if slr_mode == "Manual sea level rise" else slr_label
+    )
+
     # ── Flood map ─────────────────────────────────────────────────────────────
     with slr_col1:
         if slr_geom_wkt is None:
@@ -1729,13 +1874,13 @@ with tab3:
 
             fig_slr = go.Figure()
             # Dummy trace — forces Plotly to render as mapbox instead of cartesian
-            fig_slr.add_trace(go.Scattermapbox(
+            fig_slr.add_trace(ScatterMapTrace(
                 lon=[], lat=[], mode="markers",
                 showlegend=False, hoverinfo="skip",
             ))
             # State/county boundary outline
             for lons, lats in state_rings:
-                fig_slr.add_trace(go.Scattermapbox(
+                fig_slr.add_trace(ScatterMapTrace(
                     lon=lons, lat=lats, mode="lines",
                     line=dict(color="black", width=1.5),
                     hoverinfo="skip", showlegend=False,
@@ -1760,7 +1905,7 @@ with tab3:
                 st.warning("DEM file not found — flood overlay unavailable.")
 
             fig_slr.update_layout(
-                mapbox=mapbox_cfg_slr,
+                **_map_layout(**mapbox_cfg_slr),
                 height=520,
                 margin={"r": 0, "t": 10, "l": 0, "b": 0},
                 uirevision=f"{slr_area}_{slr_m}",
@@ -1771,16 +1916,32 @@ with tab3:
             st.markdown(
                 '<span style="display:inline-block;width:14px;height:14px;background:#DC0000;'
                 'border-radius:2px;margin-right:4px;vertical-align:middle;"></span>'
-                f'<small>Flooded at +{slr_label} sea level rise</small>&nbsp;&nbsp;&nbsp;'
+                f'<small>Flooded at {_scenario_desc}</small>&nbsp;&nbsp;&nbsp;'
                 '<span style="display:inline-block;width:14px;height:14px;background:#2166ac;'
                 'border-radius:2px;margin-right:4px;vertical-align:middle;"></span>'
                 '<small>Already below sea level</small>',
                 unsafe_allow_html=True,
             )
 
+            if slr_station_info is not None:
+                _datum_bits = [
+                    f"{lbl} {val:.2f} m"
+                    for lbl, val in [
+                        ("MHHW", slr_station_info["mhhw"]),
+                        ("MSL",  slr_station_info["msl"]),
+                        ("MLLW", slr_station_info["mllw"]),
+                    ]
+                    if val is not None and not pd.isna(val)
+                ]
+                st.caption(
+                    f"Nearest tide station: **{slr_station_info['name']}** "
+                    f"({slr_station_info['dist_km']:.0f} km away). "
+                    f"Local tidal datums (NAVD88): {', '.join(_datum_bits)}."
+                )
+
     # ── Population at risk from parquet ───────────────────────────────────────
     st.markdown("---")
-    st.markdown(f"**Population at risk — {slr_area} ({slr_year}) at +{slr_label} sea level rise**")
+    st.markdown(f"**Population at risk — {slr_area} ({slr_year}) at {_scenario_desc}**")
 
     scope_slr = "Statewide" if slr_area == "Florida (Statewide)" else "County"
     at_risk_df = df_all[
@@ -1906,7 +2067,7 @@ with tab4:
 
         # State boundary outline
         for _bl, _bla in state_rings:
-            fig_infra.add_trace(go.Scattermapbox(
+            fig_infra.add_trace(ScatterMapTrace(
                 lon=_bl, lat=_bla, mode="lines",
                 line=dict(color="black", width=1),
                 hoverinfo="skip", showlegend=False,
@@ -1924,7 +2085,7 @@ with tab4:
                 _cc = list(_igeom.exterior.coords)
                 _cb_lons = [c[0] for c in _cc]
                 _cb_lats = [c[1] for c in _cc]
-            fig_infra.add_trace(go.Scattermapbox(
+            fig_infra.add_trace(ScatterMapTrace(
                 lon=_cb_lons, lat=_cb_lats, mode="lines",
                 line=dict(color="gold", width=3),
                 hoverinfo="skip", showlegend=False,
@@ -1974,7 +2135,7 @@ with tab4:
                         except Exception:
                             pass
                 if _all_lons:
-                    fig_infra.add_trace(go.Scattermapbox(
+                    fig_infra.add_trace(ScatterMapTrace(
                         lon=_all_lons, lat=_all_lats, mode="lines",
                         line=dict(color=_lcfg["color"], width=1.5),
                         name=_ln,
@@ -1992,7 +2153,7 @@ with tab4:
                     continue
 
                 _htexts = _infra_hover_texts(_pts)
-                fig_infra.add_trace(go.Scattermapbox(
+                fig_infra.add_trace(ScatterMapTrace(
                     lon=_pts["_lon"].tolist(),
                     lat=_pts["_lat"].tolist(),
                     mode="markers",
@@ -2016,7 +2177,7 @@ with tab4:
             }]
 
         fig_infra.update_layout(
-            mapbox=dict(
+            **_map_layout(
                 style=_infra_bmap_opts[infra_bmap_style],
                 zoom=_iz,
                 center=_ic,
@@ -2620,7 +2781,7 @@ with tab6:
             }
 
         if geo_json_hz is not None and not county_agg.empty:
-            fig_choro = px.choropleth_mapbox(
+            fig_choro = _choropleth_map_fn(
                 county_agg,
                 geojson=geo_json_hz,
                 locations="GEOID",
@@ -2630,11 +2791,11 @@ with tab6:
                 hover_name="County",
                 hover_data={"value": ":,.0f", "GEOID": False},
                 labels={"value": choro_label},
-                mapbox_style="carto-positron",
                 zoom=5.5,
                 center={"lat": 27.8, "lon": -81.5},
                 title=f"{hz_metric} by county — click a county for details",
                 height=500,
+                **{_MAP_STYLE_KWARG: "carto-positron"},
             )
             fig_choro.update_layout(
                 margin={"r": 0, "t": 40, "l": 0, "b": 0},
