@@ -672,72 +672,6 @@ def get_flood_overlay(geom_wkt: str, sea_level_m: float):
     return data_uri, [west, south, east, north]
 
 
-@st.cache_data(show_spinner="Computing population at risk from raster data…")
-def compute_population_at_risk(geom_wkt: str, year: int, threshold_m: float):
-    """
-    Sample the DEM and WorldPop population raster together, pixel by pixel, and sum
-    the population living at or below `threshold_m` (NAVD88) within the geometry.
-
-    A pre-aggregated elevation-band table can only say a band is at risk once its
-    *entire* range is submerged, which undercounts whenever the threshold falls in
-    the middle of a band. Sampling both rasters directly avoids that assumption.
-    The DEM and WorldPop rasters share the same ~100 m resolution and are aligned
-    to well under one pixel, so this is a light, near-identity resample rather than
-    a real reprojection. Returns (pop_at_risk, pop_total), or (None, None) if either
-    raster is unavailable.
-    """
-    pop_path = os.path.join(WORLDPOP_DIR, f"pop_{year}_florida.tif")
-    if not os.path.exists(DEM_PATH) or not os.path.exists(pop_path):
-        return None, None
-
-    from shapely import wkt as shapely_wkt
-    from rasterio.warp import reproject, Resampling
-
-    try:
-        geom_wgs84 = shapely_wkt.loads(geom_wkt)
-        gdf = gpd.GeoDataFrame(geometry=[geom_wgs84], crs="EPSG:4326").to_crs("EPSG:4269")
-        geom_4269 = gdf.geometry.iloc[0]
-        with rasterio.open(DEM_PATH) as dem_src:
-            dem_ma, dem_transform = rio_mask(
-                dem_src, [geom_4269.__geo_interface__], crop=True, filled=False,
-            )
-        with rasterio.open(pop_path) as pop_src:
-            pop_ma, pop_transform = rio_mask(
-                pop_src, [geom_wgs84.__geo_interface__], crop=True, filled=False,
-            )
-            pop_crs = pop_src.crs
-    except Exception:
-        return None, None
-
-    dem = dem_ma[0]
-    h, w = dem.shape
-    if h == 0 or w == 0:
-        return None, None
-
-    # Resample the (already-cropped) population array onto the DEM's exact grid.
-    pop_aligned = np.full((h, w), np.nan, dtype=np.float32)
-    reproject(
-        source=pop_ma[0].filled(np.nan).astype(np.float32),
-        destination=pop_aligned,
-        src_transform=pop_transform,
-        src_crs=pop_crs,
-        dst_transform=dem_transform,
-        dst_crs="EPSG:4269",
-        resampling=Resampling.nearest,
-        src_nodata=np.nan,
-        dst_nodata=np.nan,
-    )
-
-    dem_vals = dem.filled(np.nan).astype(np.float32)
-    valid = ~np.isnan(dem_vals) & ~np.isnan(pop_aligned) & (pop_aligned >= 0)
-    if not valid.any():
-        return None, None
-
-    pop_total   = float(np.nansum(pop_aligned[valid]))
-    pop_at_risk = float(np.nansum(pop_aligned[valid & (dem_vals <= threshold_m)]))
-    return pop_at_risk, pop_total
-
-
 # ── Continuous colormaps for population overlays ──────────────────────────────
 def _apply_colormap(norm_arr: np.ndarray, colors: np.ndarray) -> np.ndarray:
     """Interpolate norm_arr values [0,1] through an N×3 color stop array."""
@@ -2026,19 +1960,6 @@ with tab3:
     r1.metric("Population at risk", f"{at_risk_pop:,.0f}")
     r2.metric("Total population",   f"{total_pop_slr:,.0f}")
     r3.metric("% at risk",          f"{pct_at_risk:.1f}%")
-
-    at_risk_display = to_display_bands(at_risk_df.copy(), slr_use_feet)
-    at_risk_display["Elev_Band"] = pd.Categorical(
-        at_risk_display["Elev_Band"], categories=slr_band_order, ordered=True)
-    at_risk_display = at_risk_display.sort_values("Elev_Band")
-    at_risk_display["Status"] = at_risk_display["at_risk"].map(
-        {True: "At risk", False: "Safe"})
-    st.dataframe(
-        at_risk_display[["Elev_Band", "Population", "Pct_of_State", "Status"]]
-        .rename(columns={"Elev_Band": f"Elevation ({slr_unit_label})", "Pct_of_State": "% State"})
-        .reset_index(drop=True),
-        use_container_width=True, hide_index=True,
-    )
 
 
 # ─────────────────────────────────────────────────────────────────────────────
