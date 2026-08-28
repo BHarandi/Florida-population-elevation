@@ -190,10 +190,27 @@ ESL_STATS = {
 
 
 
+def _is_lfs_pointer_stub(path: str) -> bool:
+    """True if `path` is an un-uploaded Git LFS pointer file instead of the real
+    binary asset (happens when git-lfs fails to push/pull the actual object —
+    the file exists and is tiny, just three lines of pointer text). Guards every
+    binary-file loader below so a broken LFS push degrades to "data unavailable"
+    instead of a native parser (parquet/GDAL) choking on garbage bytes and
+    crashing the whole app process rather than raising a catchable exception."""
+    try:
+        if os.path.getsize(path) > 1024:
+            return False
+        with open(path, "rb") as f:
+            head = f.read(30)
+        return head.startswith(b"version https://git-lfs")
+    except Exception:
+        return False
+
+
 # ── Data loaders ──────────────────────────────────────────────────────────────
 @st.cache_data
 def load_data():
-    if not os.path.exists(DATA_PATH):
+    if not os.path.exists(DATA_PATH) or _is_lfs_pointer_stub(DATA_PATH):
         return None
     return pd.read_parquet(DATA_PATH)
 
@@ -201,7 +218,7 @@ def load_data():
 @st.cache_data(show_spinner="Loading hazards data…")
 def load_hazards_data():
     _is_url = HAZARDS_PATH.startswith("http")
-    if not _is_url and not os.path.exists(HAZARDS_PATH):
+    if not _is_url and (not os.path.exists(HAZARDS_PATH) or _is_lfs_pointer_stub(HAZARDS_PATH)):
         return None
     cols = [
         "GEOID", "CZ_NAME", "EVENT_TYPE", "HAZARD",
@@ -229,7 +246,7 @@ def load_hazards_data():
 def load_tide_datums():
     """NOAA CO-OPS tidal datums (MHHW/MSL/MLLW/…) referenced to NAVD88, per station."""
     _is_url = TIDE_DATUMS_PATH.startswith("http")
-    if not _is_url and not os.path.exists(TIDE_DATUMS_PATH):
+    if not _is_url and (not os.path.exists(TIDE_DATUMS_PATH) or _is_lfs_pointer_stub(TIDE_DATUMS_PATH)):
         return None
     try:
         df = pd.read_csv(TIDE_DATUMS_PATH)
@@ -242,7 +259,7 @@ def load_tide_datums():
 def load_esl_data():
     """BAYEX-TG-EXT storm-tide return levels for Florida (meters relative to MSL)."""
     _is_url = ESL_PATH.startswith("http")
-    if not _is_url and not os.path.exists(ESL_PATH):
+    if not _is_url and (not os.path.exists(ESL_PATH) or _is_lfs_pointer_stub(ESL_PATH)):
         return None
     try:
         return pd.read_parquet(ESL_PATH)
@@ -386,8 +403,11 @@ def load_finance_data():
 @st.cache_data(show_spinner="Loading infrastructure layer…")
 def load_infra_layer(path: str, simplify_tol: float = 0.0):
     """Load an infrastructure shapefile or GeoJSON into a WGS-84 GeoDataFrame."""
-    if not path or not os.path.exists(path):
+    _is_url = path.startswith("http") if path else False
+    if not path or (not _is_url and not os.path.exists(path)):
         return None, f"File not found: {path}"
+    if not _is_url and _is_lfs_pointer_stub(path):
+        return None, "File is an un-uploaded Git LFS pointer, not the real data."
     try:
         gdf = gpd.read_file(path)
         if gdf.empty:
@@ -410,7 +430,8 @@ def _infra_elev_bands(path: str, simplify_tol: float, county_wkt, county_bbox):
     Load an infrastructure layer, clip to county polygon, sample the DEM at each
     point centroid, and return a DataFrame with columns [_band (metric), _elev_m].
     """
-    if not path or not os.path.exists(path):
+    _is_url = path.startswith("http") if path else False
+    if not path or (not _is_url and (not os.path.exists(path) or _is_lfs_pointer_stub(path))):
         return None
     try:
         gdf = gpd.read_file(path)
