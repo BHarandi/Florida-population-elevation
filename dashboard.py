@@ -1928,7 +1928,10 @@ with tab3:
             )
             slr_m, slr_label = None, None  # resolved below, once the area's center point is known
 
-        # Unit toggle — below the slider
+        # Unit toggle — controls the units of the *resulting* water level shown
+        # below (not the return period above, which is always in years)
+        if slr_mode != "Manual sea level rise":
+            st.caption("Units for the resulting flood level, shown below:")
         u_left, u_mid, u_right = st.columns([2, 1, 2])
         u_left.markdown("<div style='text-align:right;padding-top:6px;font-size:0.9rem;'>Feet</div>", unsafe_allow_html=True)
         u_mid.toggle("", value=slr_use_meters, key="slr_unit_toggle", label_visibility="collapsed")
@@ -2000,6 +2003,14 @@ with tab3:
     _scenario_desc = (
         f"+{slr_label} sea level rise" if slr_mode == "Manual sea level rise" else slr_label
     )
+
+    if slr_mode != "Manual sea level rise":
+        slr_ft = slr_m * 3.28084
+        slr_col2.metric(
+            "Resulting flood level",
+            f"{slr_ft:.1f} ft" if slr_use_feet else f"{slr_m:.2f} m",
+            help="Storm-tide height above NAVD88, using the method/estimate/return period selected above.",
+        )
 
     # ── Flood map ─────────────────────────────────────────────────────────────
     with slr_col1:
