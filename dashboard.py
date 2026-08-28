@@ -28,6 +28,15 @@ else:
 def _map_layout(**kwargs):
     """Build the {'mapbox': {...}} / {'map': {...}} kwarg for fig.update_layout()."""
     return {_MAP_LAYOUT_KEY: kwargs}
+
+
+# Same *mapbox → *map rename applies to Plotly Express's choropleth_mapbox.
+if hasattr(px, "choropleth_mapbox"):
+    _choropleth_map_fn = px.choropleth_mapbox
+    _MAP_STYLE_KWARG = "mapbox_style"
+else:
+    _choropleth_map_fn = px.choropleth_map
+    _MAP_STYLE_KWARG = "map_style"
 import numpy as np
 import rasterio
 from rasterio.mask import mask as rio_mask
@@ -2636,7 +2645,7 @@ with tab6:
             }
 
         if geo_json_hz is not None and not county_agg.empty:
-            fig_choro = px.choropleth_mapbox(
+            fig_choro = _choropleth_map_fn(
                 county_agg,
                 geojson=geo_json_hz,
                 locations="GEOID",
@@ -2646,11 +2655,11 @@ with tab6:
                 hover_name="County",
                 hover_data={"value": ":,.0f", "GEOID": False},
                 labels={"value": choro_label},
-                mapbox_style="carto-positron",
                 zoom=5.5,
                 center={"lat": 27.8, "lon": -81.5},
                 title=f"{hz_metric} by county — click a county for details",
                 height=500,
+                **{_MAP_STYLE_KWARG: "carto-positron"},
             )
             fig_choro.update_layout(
                 margin={"r": 0, "t": 40, "l": 0, "b": 0},
