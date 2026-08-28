@@ -12,31 +12,6 @@ import geopandas as gpd
 import plotly.express as px
 import plotly.graph_objects as go
 from shapely.geometry import shape
-
-# Plotly renamed the token-free tile-map traces from *mapbox to *map starting
-# around 5.24/6.0 (Scattermapbox still works but is deprecated). Resolve the
-# trace class and layout key at import time so the app keeps working no matter
-# which plotly release actually gets installed.
-if hasattr(go, "Scattermapbox"):
-    ScatterMapTrace = go.Scattermapbox
-    _MAP_LAYOUT_KEY = "mapbox"
-else:
-    ScatterMapTrace = go.Scattermap
-    _MAP_LAYOUT_KEY = "map"
-
-
-def _map_layout(**kwargs):
-    """Build the {'mapbox': {...}} / {'map': {...}} kwarg for fig.update_layout()."""
-    return {_MAP_LAYOUT_KEY: kwargs}
-
-
-# Same *mapbox → *map rename applies to Plotly Express's choropleth_mapbox.
-if hasattr(px, "choropleth_mapbox"):
-    _choropleth_map_fn = px.choropleth_mapbox
-    _MAP_STYLE_KWARG = "mapbox_style"
-else:
-    _choropleth_map_fn = px.choropleth_map
-    _MAP_STYLE_KWARG = "map_style"
 import numpy as np
 import rasterio
 from rasterio.mask import mask as rio_mask
@@ -1236,7 +1211,7 @@ with tab2:
                     boundary_lons, boundary_lats = [], []
 
                 fig_zoom = go.Figure()
-                fig_zoom.add_trace(ScatterMapTrace(
+                fig_zoom.add_trace(go.Scattermapbox(
                     lon=boundary_lons,
                     lat=boundary_lats,
                     mode="lines",
@@ -1267,7 +1242,7 @@ with tab2:
 
                 # Invisible hover-grid — lets user see elevation on mouse-over
                 if dem_hover is not None and show_dem:
-                    fig_zoom.add_trace(ScatterMapTrace(
+                    fig_zoom.add_trace(go.Scattermapbox(
                         lon=dem_hover["lons"],
                         lat=dem_hover["lats"],
                         mode="markers",
@@ -1279,7 +1254,7 @@ with tab2:
                     ))
 
                 fig_zoom.update_layout(
-                    **_map_layout(**mapbox_cfg),
+                    mapbox=mapbox_cfg,
                     height=440,
                     margin={"r": 0, "t": 10, "l": 0, "b": 0},
                     uirevision=map_county,  # preserve user zoom/pan unless county changes
@@ -1312,13 +1287,13 @@ with tab2:
                     st.info(_pop_err or f"WorldPop raster for {map_year} not available.")
                 else:
                     fig_dens = go.Figure()
-                    fig_dens.add_trace(ScatterMapTrace(
+                    fig_dens.add_trace(go.Scattermapbox(
                         lon=boundary_lons, lat=boundary_lats, mode="lines",
                         line=dict(color="black", width=2.5),
                         hoverinfo="skip", showlegend=False,
                     ))
                     if pop_hover:
-                        fig_dens.add_trace(ScatterMapTrace(
+                        fig_dens.add_trace(go.Scattermapbox(
                             lon=pop_hover["lons"], lat=pop_hover["lats"],
                             mode="markers",
                             marker=dict(size=14, color="rgba(0,0,0,0)"),
@@ -1338,7 +1313,7 @@ with tab2:
                         "below": "traces",
                     }] if show_dens else []
                     fig_dens.update_layout(
-                        **_map_layout(
+                        mapbox=dict(
                             style=pop_dens_style,
                             zoom=zoom_level,
                             center={"lat": center_lat, "lon": center_lon},
@@ -1439,7 +1414,7 @@ with tab2:
 
                     fig_state = go.Figure()
                     for lons, lats in state_rings:
-                        fig_state.add_trace(ScatterMapTrace(
+                        fig_state.add_trace(go.Scattermapbox(
                             lon=lons, lat=lats, mode="lines",
                             line=dict(color="black", width=2),
                             hoverinfo="skip", showlegend=False,
@@ -1463,7 +1438,7 @@ with tab2:
                         }]
 
                     if dem_hover is not None and show_state_dem:
-                        fig_state.add_trace(ScatterMapTrace(
+                        fig_state.add_trace(go.Scattermapbox(
                             lon=dem_hover["lons"], lat=dem_hover["lats"],
                             mode="markers",
                             marker=dict(size=14, color="rgba(0,0,0,0)"),
@@ -1473,7 +1448,7 @@ with tab2:
                         ))
 
                     fig_state.update_layout(
-                        **_map_layout(**mapbox_cfg_state),
+                        mapbox=mapbox_cfg_state,
                         height=480,
                         margin={"r": 0, "t": 10, "l": 0, "b": 0},
                         uirevision="state_dem",
@@ -1508,13 +1483,13 @@ with tab2:
                 else:
                     fig_dens_s = go.Figure()
                     for lons, lats in state_rings:
-                        fig_dens_s.add_trace(ScatterMapTrace(
+                        fig_dens_s.add_trace(go.Scattermapbox(
                             lon=lons, lat=lats, mode="lines",
                             line=dict(color="black", width=2),
                             hoverinfo="skip", showlegend=False,
                         ))
                     if pop_hover_s:
-                        fig_dens_s.add_trace(ScatterMapTrace(
+                        fig_dens_s.add_trace(go.Scattermapbox(
                             lon=pop_hover_s["lons"], lat=pop_hover_s["lats"],
                             mode="markers",
                             marker=dict(size=14, color="rgba(0,0,0,0)"),
@@ -1534,7 +1509,7 @@ with tab2:
                         "below": "traces",
                     }] if show_dens_s else []
                     fig_dens_s.update_layout(
-                        **_map_layout(
+                        mapbox=dict(
                             style=pop_dens_style_s,
                             zoom=5.5,
                             center={"lat": 27.8, "lon": -81.5},
@@ -1754,13 +1729,13 @@ with tab3:
 
             fig_slr = go.Figure()
             # Dummy trace — forces Plotly to render as mapbox instead of cartesian
-            fig_slr.add_trace(ScatterMapTrace(
+            fig_slr.add_trace(go.Scattermapbox(
                 lon=[], lat=[], mode="markers",
                 showlegend=False, hoverinfo="skip",
             ))
             # State/county boundary outline
             for lons, lats in state_rings:
-                fig_slr.add_trace(ScatterMapTrace(
+                fig_slr.add_trace(go.Scattermapbox(
                     lon=lons, lat=lats, mode="lines",
                     line=dict(color="black", width=1.5),
                     hoverinfo="skip", showlegend=False,
@@ -1785,7 +1760,7 @@ with tab3:
                 st.warning("DEM file not found — flood overlay unavailable.")
 
             fig_slr.update_layout(
-                **_map_layout(**mapbox_cfg_slr),
+                mapbox=mapbox_cfg_slr,
                 height=520,
                 margin={"r": 0, "t": 10, "l": 0, "b": 0},
                 uirevision=f"{slr_area}_{slr_m}",
@@ -1931,7 +1906,7 @@ with tab4:
 
         # State boundary outline
         for _bl, _bla in state_rings:
-            fig_infra.add_trace(ScatterMapTrace(
+            fig_infra.add_trace(go.Scattermapbox(
                 lon=_bl, lat=_bla, mode="lines",
                 line=dict(color="black", width=1),
                 hoverinfo="skip", showlegend=False,
@@ -1949,7 +1924,7 @@ with tab4:
                 _cc = list(_igeom.exterior.coords)
                 _cb_lons = [c[0] for c in _cc]
                 _cb_lats = [c[1] for c in _cc]
-            fig_infra.add_trace(ScatterMapTrace(
+            fig_infra.add_trace(go.Scattermapbox(
                 lon=_cb_lons, lat=_cb_lats, mode="lines",
                 line=dict(color="gold", width=3),
                 hoverinfo="skip", showlegend=False,
@@ -1999,7 +1974,7 @@ with tab4:
                         except Exception:
                             pass
                 if _all_lons:
-                    fig_infra.add_trace(ScatterMapTrace(
+                    fig_infra.add_trace(go.Scattermapbox(
                         lon=_all_lons, lat=_all_lats, mode="lines",
                         line=dict(color=_lcfg["color"], width=1.5),
                         name=_ln,
@@ -2017,7 +1992,7 @@ with tab4:
                     continue
 
                 _htexts = _infra_hover_texts(_pts)
-                fig_infra.add_trace(ScatterMapTrace(
+                fig_infra.add_trace(go.Scattermapbox(
                     lon=_pts["_lon"].tolist(),
                     lat=_pts["_lat"].tolist(),
                     mode="markers",
@@ -2041,7 +2016,7 @@ with tab4:
             }]
 
         fig_infra.update_layout(
-            **_map_layout(
+            mapbox=dict(
                 style=_infra_bmap_opts[infra_bmap_style],
                 zoom=_iz,
                 center=_ic,
@@ -2645,7 +2620,7 @@ with tab6:
             }
 
         if geo_json_hz is not None and not county_agg.empty:
-            fig_choro = _choropleth_map_fn(
+            fig_choro = px.choropleth_mapbox(
                 county_agg,
                 geojson=geo_json_hz,
                 locations="GEOID",
@@ -2655,11 +2630,11 @@ with tab6:
                 hover_name="County",
                 hover_data={"value": ":,.0f", "GEOID": False},
                 labels={"value": choro_label},
+                mapbox_style="carto-positron",
                 zoom=5.5,
                 center={"lat": 27.8, "lon": -81.5},
                 title=f"{hz_metric} by county — click a county for details",
                 height=500,
-                **{_MAP_STYLE_KWARG: "carto-positron"},
             )
             fig_choro.update_layout(
                 margin={"r": 0, "t": 40, "l": 0, "b": 0},
