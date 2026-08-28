@@ -693,6 +693,121 @@ def get_flood_overlay(geom_wkt: str, sea_level_m: float):
     return data_uri, [west, south, east, north]
 
 
+@st.cache_data(show_spinner="Computing population at risk from raster data…")
+def compute_population_at_risk(geom_wkt: str, year: int, threshold_m: float):
+    """
+    Sum population living at or below `threshold_m` (NAVD88) within the geometry,
+    sampling the DEM and WorldPop population raster together, pixel by pixel.
+
+    A pre-aggregated elevation-band table can only say a band is at risk once its
+    *entire* range is submerged, which undercounts (or reports zero) whenever the
+    threshold falls in the middle of a band. Sampling both rasters directly avoids
+    that assumption.
+
+    Processes the area in horizontal chunks via windowed reads, rather than loading
+    the whole cropped raster into memory at once — a statewide query would otherwise
+    need to hold ~300 MB+ arrays at once, which can exceed Streamlit Cloud's memory
+    limit and crash the app. Chunking keeps peak memory to a few tens of MB
+    regardless of how large the selected area is.
+
+    Returns (pop_at_risk, pop_total), or (None, None) if either raster is
+    unavailable (including a broken/un-uploaded Git LFS pointer stub).
+    """
+    pop_path = os.path.join(WORLDPOP_DIR, f"pop_{year}_florida.tif")
+    if not os.path.exists(DEM_PATH) or _is_lfs_pointer_stub(DEM_PATH):
+        return None, None
+    if not os.path.exists(pop_path) or _is_lfs_pointer_stub(pop_path):
+        return None, None
+
+    from shapely import wkt as shapely_wkt
+    from rasterio.windows import from_bounds, Window, bounds as window_bounds
+    from rasterio.features import geometry_mask
+    from rasterio.warp import reproject, Resampling
+
+    CHUNK_ROWS = 256
+
+    try:
+        geom_wgs84 = shapely_wkt.loads(geom_wkt)
+        gdf = gpd.GeoDataFrame(geometry=[geom_wgs84], crs="EPSG:4326").to_crs("EPSG:4269")
+        geom_4269 = gdf.geometry.iloc[0]
+    except Exception:
+        return None, None
+
+    pop_total = 0.0
+    pop_at_risk = 0.0
+
+    try:
+        with rasterio.open(DEM_PATH) as dem_src, rasterio.open(pop_path) as pop_src:
+            minx, miny, maxx, maxy = geom_4269.bounds
+            dem_window = from_bounds(minx, miny, maxx, maxy, transform=dem_src.transform)
+            dem_window = dem_window.round_offsets().round_lengths()
+            dem_window = dem_window.intersection(Window(0, 0, dem_src.width, dem_src.height))
+            if dem_window.width <= 0 or dem_window.height <= 0:
+                return None, None
+
+            total_rows = int(dem_window.height)
+            pop_crs    = pop_src.crs
+            pop_nodata = pop_src.nodata
+
+            for row_off in range(0, total_rows, CHUNK_ROWS):
+                h = min(CHUNK_ROWS, total_rows - row_off)
+                sub_window = Window(dem_window.col_off, dem_window.row_off + row_off,
+                                     dem_window.width, h)
+                dem_transform = dem_src.window_transform(sub_window)
+
+                dem_chunk = dem_src.read(1, window=sub_window, masked=True)
+                if dem_chunk.size == 0:
+                    continue
+
+                chunk_bounds = window_bounds(sub_window, dem_src.transform)
+                poly_outside = geometry_mask(
+                    [geom_4269.__geo_interface__],
+                    out_shape=dem_chunk.shape,
+                    transform=dem_transform,
+                    invert=False,
+                )
+
+                # Corresponding population window — own CRS/transform, nearly
+                # identical grid, reconciled properly below via reproject().
+                pminx, pminy, pmaxx, pmaxy = chunk_bounds
+                pop_window = from_bounds(pminx, pminy, pmaxx, pmaxy, transform=pop_src.transform)
+                pop_window = pop_window.round_offsets().round_lengths()
+                pop_window = pop_window.intersection(Window(0, 0, pop_src.width, pop_src.height))
+                if pop_window.width <= 0 or pop_window.height <= 0:
+                    continue
+                pop_chunk = pop_src.read(1, window=pop_window)
+                pop_chunk_transform = pop_src.window_transform(pop_window)
+
+                pop_aligned = np.full(dem_chunk.shape, np.nan, dtype=np.float32)
+                reproject(
+                    source=pop_chunk.astype(np.float32),
+                    destination=pop_aligned,
+                    src_transform=pop_chunk_transform,
+                    src_crs=pop_crs,
+                    dst_transform=dem_transform,
+                    dst_crs="EPSG:4269",
+                    resampling=Resampling.nearest,
+                    src_nodata=pop_nodata if pop_nodata is not None else np.nan,
+                    dst_nodata=np.nan,
+                )
+
+                dem_vals = dem_chunk.filled(np.nan).astype(np.float32)
+                valid = (
+                    ~np.isnan(dem_vals) & ~np.isnan(pop_aligned) &
+                    (pop_aligned >= 0) & ~poly_outside
+                )
+                if not valid.any():
+                    continue
+                pop_total   += float(np.nansum(pop_aligned[valid]))
+                pop_at_risk += float(np.nansum(pop_aligned[valid & (dem_vals <= threshold_m)]))
+    except Exception:
+        return None, None
+
+    if pop_total <= 0:
+        return None, None
+    return pop_at_risk, pop_total
+
+
 # ── Continuous colormaps for population overlays ──────────────────────────────
 def _apply_colormap(norm_arr: np.ndarray, colors: np.ndarray) -> np.ndarray:
     """Interpolate norm_arr values [0,1] through an N×3 color stop array."""
@@ -1960,27 +2075,37 @@ with tab3:
                     f"Local tidal datums (NAVD88): {', '.join(_datum_bits)}."
                 )
 
-    # ── Population at risk from parquet ───────────────────────────────────────
+    # ── Population at risk — computed pixel-by-pixel from DEM + population raster ──
     st.markdown("---")
     st.markdown(f"**Population at risk — {slr_area} ({slr_year}) at {_scenario_desc}**")
 
-    scope_slr = "Statewide" if slr_area == "Florida (Statewide)" else "County"
-    at_risk_df = df_all[
-        (df_all["Scope"] == scope_slr) &
-        (df_all["Year"]  == slr_year)
-    ].copy()
-    if scope_slr == "County":
-        at_risk_df = at_risk_df[at_risk_df["County_Name"] == slr_area]
+    _raster_pop_at_risk, _raster_pop_total = (
+        compute_population_at_risk(slr_geom_wkt, slr_year, slr_m)
+        if slr_geom_wkt is not None else (None, None)
+    )
 
-    at_risk_df["at_risk"] = at_risk_df["Elev_Max_m"] <= slr_m
-    at_risk_pop   = at_risk_df[at_risk_df["at_risk"]]["Population"].sum()
-    total_pop_slr = at_risk_df["Population"].sum()
-    pct_at_risk   = (at_risk_pop / total_pop_slr * 100) if total_pop_slr > 0 else 0
+    if _raster_pop_at_risk is not None:
+        at_risk_pop   = _raster_pop_at_risk
+        total_pop_slr = _raster_pop_total
+        _risk_source  = "computed directly from the DEM and population rasters, pixel by pixel"
+    else:
+        scope_slr = "Statewide" if slr_area == "Florida (Statewide)" else "County"
+        at_risk_df = df_all[
+            (df_all["Scope"] == scope_slr) &
+            (df_all["Year"]  == slr_year)
+        ].copy()
+        if scope_slr == "County":
+            at_risk_df = at_risk_df[at_risk_df["County_Name"] == slr_area]
+        at_risk_pop   = at_risk_df[at_risk_df["Elev_Max_m"] <= slr_m]["Population"].sum()
+        total_pop_slr = at_risk_df["Population"].sum()
+        _risk_source  = "estimated from pre-aggregated elevation bands (raster data unavailable)"
+    pct_at_risk = (at_risk_pop / total_pop_slr * 100) if total_pop_slr > 0 else 0
 
     r1, r2, r3 = st.columns(3)
     r1.metric("Population at risk", f"{at_risk_pop:,.0f}")
     r2.metric("Total population",   f"{total_pop_slr:,.0f}")
     r3.metric("% at risk",          f"{pct_at_risk:.1f}%")
+    st.caption(f"Population at risk is {_risk_source}.")
 
 
 # ─────────────────────────────────────────────────────────────────────────────
