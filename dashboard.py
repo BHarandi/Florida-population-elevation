@@ -1,7 +1,7 @@
 """
 Florida Population by Elevation — Streamlit Dashboard
-Author: Bella Harandi
-Date: 2026
+Author: Bellah Harandi
+Date: July 2026
 
 Run: python -m streamlit run dashboard.py
 """
@@ -12,10 +12,26 @@ import geopandas as gpd
 import plotly.express as px
 import plotly.graph_objects as go
 from shapely.geometry import shape
+
+# Plotly renamed the token-free tile-map traces from *mapbox to *map starting
+# around 5.24/6.0 (Scattermapbox still works but is deprecated). Resolve the
+# trace class and layout key at import time so the app keeps working no matter
+# which plotly release actually gets installed.
+if hasattr(go, "Scattermapbox"):
+    ScatterMapTrace = go.Scattermapbox
+    _MAP_LAYOUT_KEY = "mapbox"
+else:
+    ScatterMapTrace = go.Scattermap
+    _MAP_LAYOUT_KEY = "map"
+
+
+def _map_layout(**kwargs):
+    """Build the {'mapbox': {...}} / {'map': {...}} kwarg for fig.update_layout()."""
+    return {_MAP_LAYOUT_KEY: kwargs}
 import numpy as np
 import rasterio
 from rasterio.mask import mask as rio_mask
-from PIL import Image
+from PIL import Image, ImageDraw
 import json
 import io
 import base64
@@ -35,6 +51,9 @@ STATE_SHP  = os.path.join(_BASE, "data", "shp", "state",    "tl_2020_12_state.sh
 DEM_PATH      = os.path.join(_BASE, "data", "dem_florida_100m.tif")
 _wp_local     = os.path.join(_BASE, "data", "worldpop_wgs84")
 WORLDPOP_DIR  = _wp_local if os.path.isdir(_wp_local) else r"E:\2026\Datasets\worldpop-data\wgs84"
+_HAZARDS_LOCAL  = os.path.join(_BASE, "data", "Florida_Hazards_1996-2024.parquet")
+_HAZARDS_GITHUB = "https://raw.githubusercontent.com/BHarandi/Florida-population-elevation/main/data/Florida_Hazards_1996-2024.parquet"
+HAZARDS_PATH    = _HAZARDS_LOCAL if os.path.exists(_HAZARDS_LOCAL) else _HAZARDS_GITHUB
 
 # ── Infrastructure data paths ──────────────────────────────────────────────────
 # Primary source: GitHub raw URLs (public — works for everyone).
@@ -43,6 +62,15 @@ WORLDPOP_DIR  = _wp_local if os.path.isdir(_wp_local) else r"E:\2026\Datasets\wo
 _GITHUB_BASE = "https://raw.githubusercontent.com/BHarandi/Florida-population-elevation/main/data/Transportation"
 _INFRA_LOCAL = os.path.join(_BASE, "data", "Transportation")
 _FINAL_DATA  = r"F:\2026\Datasets\infrastracture\Final Data\Transportation"
+_fin_local   = os.path.join(_BASE, "data", "Finance")
+_fin_github  = "https://raw.githubusercontent.com/BHarandi/Florida-population-elevation/main/data/Finance"
+FINANCE_DIR  = _fin_local if os.path.isdir(_fin_local) else _fin_github
+FINANCE_FILES = [
+    "F10_grsales_cy1011.xlsx", "F10_grsales_cy1213.xlsx",
+    "F10_grsales_cy1415.xlsx", "F10_grsales_cy1617.xlsx",
+    "F10_grsales_cy1819.xlsx", "F10_grsales_cy2021.xlsx",
+    "F10_grsales_cy2223.xlsx", "F10_grsales_cy2425.xlsx",
+]
 
 
 def _resolve_layer_path(lcfg: dict) -> str:
@@ -60,45 +88,45 @@ def _resolve_layer_path(lcfg: dict) -> str:
 
 
 INFRA_LAYERS = {
-    "Airports": {
-        "local": "Airports.geojson",
-        "color": "#1f77b4", "group": "Transportation", "icon": "✈",
-    },
     "Roadways": {
         "local": "Roadways.geojson",
-        "color": "#e377c2", "group": "Transportation", "icon": "🛣️",
+        "color": "#e377c2", "group": "Transportation",
         "is_line": True,
     },
     "Bridges": {
         "local": "Bridges.geojson",
-        "color": "#ff7f0e", "group": "Transportation", "icon": "🌉",
-        "is_line": True,
-    },
-    "Marinas": {
-        "local": "Marinas.geojson",
-        "color": "#9467bd", "group": "Transportation", "icon": "⚓",
-    },
-    "Ports": {
-        "local": "Ports.geojson",
-        "color": "#8c564b", "group": "Transportation", "icon": "🚢",
-    },
-    "Railway": {
-        "local": "Railway.geojson",
-        "color": "#2ca02c", "group": "Transportation", "icon": "🚂",
+        "color": "#ff7f0e", "group": "Transportation",
         "is_line": True,
     },
     "Bus Terminals": {
         "local": "Bus Terminals.geojson",
-        "color": "#d62728", "group": "Transportation", "icon": "🚌",
+        "color": "#d62728", "group": "Transportation",
     },
     "Rail Facilities (Lines)": {
         "local": "Rail Facilities (PL).geojson",
-        "color": "#7f7f7f", "group": "Transportation", "icon": "🏭",
+        "color": "#7f7f7f", "group": "Transportation",
         "is_line": True,
     },
     "Rail Facilities (Points)": {
         "local": "Rail Facilities (PT).geojson",
-        "color": "#595959", "group": "Transportation", "icon": "🏭",
+        "color": "#595959", "group": "Transportation",
+    },
+    "Railway": {
+        "local": "Railway.geojson",
+        "color": "#2ca02c", "group": "Transportation",
+        "is_line": True,
+    },
+    "Ports": {
+        "local": "Ports.geojson",
+        "color": "#8c564b", "group": "Transportation",
+    },
+    "Marinas": {
+        "local": "Marinas.geojson",
+        "color": "#9467bd", "group": "Transportation",
+    },
+    "Aviation (Airports)": {
+        "local": "Airports.geojson",
+        "color": "#1f77b4", "group": "Transportation",
     },
 }
 
@@ -119,6 +147,14 @@ BAND_COLORS_FT = {
     "164+ ft":  "#6b3a0f",
 }
 
+MONTH_NAMES = {
+    1: "January", 2: "February", 3: "March",    4: "April",
+    5: "May",     6: "June",     7: "July",      8: "August",
+    9: "September", 10: "October", 11: "November", 12: "December",
+}
+MONTH_NUM = {v: k for k, v in MONTH_NAMES.items()}
+
+
 
 # ── Data loaders ──────────────────────────────────────────────────────────────
 @st.cache_data
@@ -126,6 +162,33 @@ def load_data():
     if not os.path.exists(DATA_PATH):
         return None
     return pd.read_parquet(DATA_PATH)
+
+
+@st.cache_data(show_spinner="Loading hazards data…")
+def load_hazards_data():
+    _is_url = HAZARDS_PATH.startswith("http")
+    if not _is_url and not os.path.exists(HAZARDS_PATH):
+        return None
+    cols = [
+        "GEOID", "CZ_NAME", "EVENT_TYPE", "HAZARD",
+        "start_year", "BEGIN_LAT", "BEGIN_LON",
+        "ADJ_DAMAGE_PROPERTY", "TOTAL_DEATHS", "TOTAL_INJURIES",
+    ]
+    try:
+        df = pd.read_parquet(HAZARDS_PATH, columns=cols)
+    except Exception:
+        return None
+    df["start_year"] = df["start_year"].astype(int)
+    df["ADJ_DAMAGE_PROPERTY"] = pd.to_numeric(df["ADJ_DAMAGE_PROPERTY"], errors="coerce").fillna(0)
+    df["TOTAL_DEATHS"]        = pd.to_numeric(df["TOTAL_DEATHS"],        errors="coerce").fillna(0)
+    df["TOTAL_INJURIES"]      = pd.to_numeric(df["TOTAL_INJURIES"],      errors="coerce").fillna(0)
+    hazard_name_map = (
+        df.dropna(subset=["HAZARD", "EVENT_TYPE"])
+        .groupby("HAZARD")["EVENT_TYPE"]
+        .agg(lambda x: x.value_counts().index[0])
+    )
+    df["HAZARD"] = df["HAZARD"].map(hazard_name_map).fillna(df["HAZARD"])
+    return df
 
 
 @st.cache_data
@@ -161,6 +224,88 @@ def load_state_geometry_wkt():
     from shapely.ops import unary_union
     gdf = gpd.read_file(STATE_SHP).to_crs(epsg=4326)
     return unary_union(gdf.geometry).wkt
+
+
+@st.cache_data(show_spinner="Loading gross sales data — first run only…")
+def load_finance_data():
+    """Parse all F10 Excel files → long-format DataFrame. Works local or via GitHub URL."""
+    _is_url = FINANCE_DIR.startswith("http")
+    SKIP = {'Summary', 'Line Item Detail'}
+    records = []
+    for fname in FINANCE_FILES:
+        xl = None
+        actual_path = None
+        if not _is_url:
+            _lp = os.path.join(FINANCE_DIR, fname)
+            if os.path.exists(_lp):
+                try:
+                    xl = pd.ExcelFile(_lp)
+                    actual_path = _lp
+                except Exception:
+                    pass
+        if xl is None:
+            _up = f"{_fin_github}/{fname}"
+            try:
+                xl = pd.ExcelFile(_up)
+                actual_path = _up
+            except Exception:
+                continue
+        for sheet in xl.sheet_names:
+            if sheet in SKIP:
+                continue
+            try:
+                raw = pd.read_excel(actual_path, sheet_name=sheet, header=None)
+            except Exception:
+                continue
+            hdr_idx = None
+            for i, row in raw.iterrows():
+                if any(str(v).strip() == 'Kind Code' for v in row.values):
+                    hdr_idx = i
+                    break
+            if hdr_idx is None:
+                continue
+            hdr = list(raw.iloc[hdr_idx].values)
+            month_cols = {}
+            for ci in range(2, len(hdr)):
+                v = hdr[ci]
+                try:
+                    if pd.isna(v):
+                        continue
+                except Exception:
+                    pass
+                try:
+                    dt = pd.to_datetime(v)
+                    month_cols[ci] = (dt.year, dt.month)
+                except Exception:
+                    pass
+            if not month_cols:
+                continue
+            for ri in range(hdr_idx + 1, len(raw)):
+                row = list(raw.iloc[ri].values)
+                try:
+                    kc = int(float(str(row[0]).strip()))
+                except (ValueError, TypeError):
+                    continue
+                kind_name = str(row[1]).strip() if len(row) > 1 else ''
+                for ci, (yr, mo) in month_cols.items():
+                    if ci >= len(row):
+                        continue
+                    try:
+                        sales = float(row[ci])
+                    except (TypeError, ValueError):
+                        continue
+                    if pd.isna(sales) or sales < 0:
+                        continue
+                    records.append((sheet, yr, mo, kc, kind_name, sales))
+    if not records:
+        return pd.DataFrame()
+    df = pd.DataFrame(records, columns=[
+        'county', 'year', 'month', 'kind_code', 'kind_name', 'gross_sales'
+    ])
+    df['date'] = pd.to_datetime(
+        df['year'].astype(str) + '-' + df['month'].astype(str).str.zfill(2) + '-01'
+    )
+    return df
 
 
 @st.cache_data(show_spinner="Loading infrastructure layer…")
@@ -681,7 +826,8 @@ df_all = load_data()
 
 # ── Header ────────────────────────────────────────────────────────────────────
 st.title("Florida Population by Elevation (2010–2025)")
-st.caption("Author: Bella Harandi")
+st.caption("Author: Bellah Harandi")
+st.caption("Supervisors: Ivan David Haigh  |  Thomas Wahl  |  Christopher Emrich")
 st.caption("University of Central Florida (UCF)  |  2026")
 
 if df_all is None:
@@ -744,10 +890,10 @@ df_area = get_area_df(selected_area, unit_key,
 for _ln_pre in INFRA_LAYERS:
     _k_pre = f"infra_{_ln_pre.replace(' ', '_')}"
     if _k_pre not in st.session_state:
-        st.session_state[_k_pre] = _ln_pre in ("Airports",)
+        st.session_state[_k_pre] = _ln_pre in ("Aviation (Airports)",)
 
 # ── Tabs ──────────────────────────────────────────────────────────────────────
-tab1, tab2, tab3, tab4 = st.tabs(["Distribution", "Map", "Sea Level Rise", "FEMA Lifeline"])
+tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs(["Distribution", "Map", "Sea Level Rise", "FEMA Lifeline", "Economic Activity", "Hazards"])
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -1081,7 +1227,7 @@ with tab2:
                     boundary_lons, boundary_lats = [], []
 
                 fig_zoom = go.Figure()
-                fig_zoom.add_trace(go.Scattermapbox(
+                fig_zoom.add_trace(ScatterMapTrace(
                     lon=boundary_lons,
                     lat=boundary_lats,
                     mode="lines",
@@ -1112,7 +1258,7 @@ with tab2:
 
                 # Invisible hover-grid — lets user see elevation on mouse-over
                 if dem_hover is not None and show_dem:
-                    fig_zoom.add_trace(go.Scattermapbox(
+                    fig_zoom.add_trace(ScatterMapTrace(
                         lon=dem_hover["lons"],
                         lat=dem_hover["lats"],
                         mode="markers",
@@ -1124,7 +1270,7 @@ with tab2:
                     ))
 
                 fig_zoom.update_layout(
-                    mapbox=mapbox_cfg,
+                    **_map_layout(**mapbox_cfg),
                     height=440,
                     margin={"r": 0, "t": 10, "l": 0, "b": 0},
                     uirevision=map_county,  # preserve user zoom/pan unless county changes
@@ -1157,13 +1303,13 @@ with tab2:
                     st.info(_pop_err or f"WorldPop raster for {map_year} not available.")
                 else:
                     fig_dens = go.Figure()
-                    fig_dens.add_trace(go.Scattermapbox(
+                    fig_dens.add_trace(ScatterMapTrace(
                         lon=boundary_lons, lat=boundary_lats, mode="lines",
                         line=dict(color="black", width=2.5),
                         hoverinfo="skip", showlegend=False,
                     ))
                     if pop_hover:
-                        fig_dens.add_trace(go.Scattermapbox(
+                        fig_dens.add_trace(ScatterMapTrace(
                             lon=pop_hover["lons"], lat=pop_hover["lats"],
                             mode="markers",
                             marker=dict(size=14, color="rgba(0,0,0,0)"),
@@ -1183,7 +1329,7 @@ with tab2:
                         "below": "traces",
                     }] if show_dens else []
                     fig_dens.update_layout(
-                        mapbox=dict(
+                        **_map_layout(
                             style=pop_dens_style,
                             zoom=zoom_level,
                             center={"lat": center_lat, "lon": center_lon},
@@ -1284,7 +1430,7 @@ with tab2:
 
                     fig_state = go.Figure()
                     for lons, lats in state_rings:
-                        fig_state.add_trace(go.Scattermapbox(
+                        fig_state.add_trace(ScatterMapTrace(
                             lon=lons, lat=lats, mode="lines",
                             line=dict(color="black", width=2),
                             hoverinfo="skip", showlegend=False,
@@ -1308,7 +1454,7 @@ with tab2:
                         }]
 
                     if dem_hover is not None and show_state_dem:
-                        fig_state.add_trace(go.Scattermapbox(
+                        fig_state.add_trace(ScatterMapTrace(
                             lon=dem_hover["lons"], lat=dem_hover["lats"],
                             mode="markers",
                             marker=dict(size=14, color="rgba(0,0,0,0)"),
@@ -1318,7 +1464,7 @@ with tab2:
                         ))
 
                     fig_state.update_layout(
-                        mapbox=mapbox_cfg_state,
+                        **_map_layout(**mapbox_cfg_state),
                         height=480,
                         margin={"r": 0, "t": 10, "l": 0, "b": 0},
                         uirevision="state_dem",
@@ -1353,13 +1499,13 @@ with tab2:
                 else:
                     fig_dens_s = go.Figure()
                     for lons, lats in state_rings:
-                        fig_dens_s.add_trace(go.Scattermapbox(
+                        fig_dens_s.add_trace(ScatterMapTrace(
                             lon=lons, lat=lats, mode="lines",
                             line=dict(color="black", width=2),
                             hoverinfo="skip", showlegend=False,
                         ))
                     if pop_hover_s:
-                        fig_dens_s.add_trace(go.Scattermapbox(
+                        fig_dens_s.add_trace(ScatterMapTrace(
                             lon=pop_hover_s["lons"], lat=pop_hover_s["lats"],
                             mode="markers",
                             marker=dict(size=14, color="rgba(0,0,0,0)"),
@@ -1379,7 +1525,7 @@ with tab2:
                         "below": "traces",
                     }] if show_dens_s else []
                     fig_dens_s.update_layout(
-                        mapbox=dict(
+                        **_map_layout(
                             style=pop_dens_style_s,
                             zoom=5.5,
                             center={"lat": 27.8, "lon": -81.5},
@@ -1599,13 +1745,13 @@ with tab3:
 
             fig_slr = go.Figure()
             # Dummy trace — forces Plotly to render as mapbox instead of cartesian
-            fig_slr.add_trace(go.Scattermapbox(
+            fig_slr.add_trace(ScatterMapTrace(
                 lon=[], lat=[], mode="markers",
                 showlegend=False, hoverinfo="skip",
             ))
             # State/county boundary outline
             for lons, lats in state_rings:
-                fig_slr.add_trace(go.Scattermapbox(
+                fig_slr.add_trace(ScatterMapTrace(
                     lon=lons, lat=lats, mode="lines",
                     line=dict(color="black", width=1.5),
                     hoverinfo="skip", showlegend=False,
@@ -1630,7 +1776,7 @@ with tab3:
                 st.warning("DEM file not found — flood overlay unavailable.")
 
             fig_slr.update_layout(
-                mapbox=mapbox_cfg_slr,
+                **_map_layout(**mapbox_cfg_slr),
                 height=520,
                 margin={"r": 0, "t": 10, "l": 0, "b": 0},
                 uirevision=f"{slr_area}_{slr_m}",
@@ -1724,7 +1870,7 @@ with tab4:
                 for _ln in _lnames:
                     _lcfg = INFRA_LAYERS[_ln]
                     _checked = st.checkbox(
-                        f"{_lcfg['icon']} {_ln}",
+                        _ln,
                         key=f"infra_{_ln.replace(' ', '_')}",
                     )
                     if _checked:
@@ -1776,7 +1922,7 @@ with tab4:
 
         # State boundary outline
         for _bl, _bla in state_rings:
-            fig_infra.add_trace(go.Scattermapbox(
+            fig_infra.add_trace(ScatterMapTrace(
                 lon=_bl, lat=_bla, mode="lines",
                 line=dict(color="black", width=1),
                 hoverinfo="skip", showlegend=False,
@@ -1794,7 +1940,7 @@ with tab4:
                 _cc = list(_igeom.exterior.coords)
                 _cb_lons = [c[0] for c in _cc]
                 _cb_lats = [c[1] for c in _cc]
-            fig_infra.add_trace(go.Scattermapbox(
+            fig_infra.add_trace(ScatterMapTrace(
                 lon=_cb_lons, lat=_cb_lats, mode="lines",
                 line=dict(color="gold", width=3),
                 hoverinfo="skip", showlegend=False,
@@ -1826,7 +1972,7 @@ with tab4:
                     _fgdf = _gdf.cx[_cb[0]:_cb[2], _cb[1]:_cb[3]]
 
             if _fgdf.empty:
-                _summary_rows.append({"Layer": f"{_lcfg['icon']} {_ln}", "Features": 0})
+                _summary_rows.append({"Layer": _ln, "Features": 0})
                 continue
 
             if _lcfg.get("is_line"):
@@ -1844,13 +1990,13 @@ with tab4:
                         except Exception:
                             pass
                 if _all_lons:
-                    fig_infra.add_trace(go.Scattermapbox(
+                    fig_infra.add_trace(ScatterMapTrace(
                         lon=_all_lons, lat=_all_lats, mode="lines",
                         line=dict(color=_lcfg["color"], width=1.5),
-                        name=f"{_lcfg['icon']} {_ln}",
+                        name=_ln,
                         showlegend=True, hoverinfo="skip",
                     ))
-                _summary_rows.append({"Layer": f"{_lcfg['icon']} {_ln}", "Features": len(_fgdf)})
+                _summary_rows.append({"Layer": _ln, "Features": len(_fgdf)})
 
             else:
                 # Point / polygon → use centroid for marker position
@@ -1862,17 +2008,17 @@ with tab4:
                     continue
 
                 _htexts = _infra_hover_texts(_pts)
-                fig_infra.add_trace(go.Scattermapbox(
+                fig_infra.add_trace(ScatterMapTrace(
                     lon=_pts["_lon"].tolist(),
                     lat=_pts["_lat"].tolist(),
                     mode="markers",
                     marker=dict(size=8, color=_lcfg["color"], opacity=0.85),
                     text=_htexts,
                     hovertemplate="%{text}<extra></extra>",
-                    name=f"{_lcfg['icon']} {_ln}",
+                    name=_ln,
                     showlegend=True,
                 ))
-                _summary_rows.append({"Layer": f"{_lcfg['icon']} {_ln}", "Features": len(_pts)})
+                _summary_rows.append({"Layer": _ln, "Features": len(_pts)})
 
         _infra_mapbox_layers = []
         if _infra_dem_img is not None:
@@ -1886,7 +2032,7 @@ with tab4:
             }]
 
         fig_infra.update_layout(
-            mapbox=dict(
+            **_map_layout(
                 style=_infra_bmap_opts[infra_bmap_style],
                 zoom=_iz,
                 center=_ic,
@@ -1917,7 +2063,7 @@ with tab4:
 
         # Note about optional layers that need local data
         _missing_optional = [
-            f"{INFRA_LAYERS[_ln]['icon']} {_ln}"
+            _ln
             for _ln in active_infra_layers
             if INFRA_LAYERS[_ln].get("optional") and not os.path.exists(INFRA_LAYERS[_ln]["path"])
         ]
@@ -1951,9 +2097,8 @@ with tab4:
             _edf = _edf.copy()
             if _use_ft:
                 _edf["_band"] = _edf["_band"].map(BAND_MAP_M_TO_FT)
-            _label = f"{_lcfg['icon']} {_ln}"
             for _bnd, _cnt in _edf["_band"].value_counts().items():
-                _elev_rows.append({"Layer": _label, "Elev_Band": _bnd,
+                _elev_rows.append({"Layer": _ln, "Elev_Band": _bnd,
                                    "Count": int(_cnt), "_color": _lcfg["color"]})
 
         if _elev_rows:
@@ -2005,10 +2150,606 @@ with tab4:
             st.info("No elevation data available for the selected layers.")
 
 
+# ─────────────────────────────────────────────────────────────────────────────
+# TAB 5 — Economic Activity (Florida F10 Gross Sales)
+# ─────────────────────────────────────────────────────────────────────────────
+with tab5:
+    st.subheader("Florida Gross Sales Activity (2010–2025)")
+
+    fin_df = load_finance_data()
+
+    if fin_df.empty:
+        st.warning(f"Finance data not found at: `{FINANCE_DIR}`")
+    else:
+        # Pre-build county list so map clicks can update the selectbox via session state
+        fin_county_opts = ["Florida (Statewide)"] + sorted(
+            c for c in fin_df["county"].unique() if c != "Statewide"
+        )
+        if "fin_area_sel" not in st.session_state:
+            st.session_state["fin_area_sel"] = "Florida (Statewide)"
+
+        fin_ctrl_col, fin_map_col = st.columns([1, 3])
+
+        with fin_ctrl_col:
+            # Area — index driven by session state so map clicks update the dropdown
+            _fa_idx = (
+                fin_county_opts.index(st.session_state["fin_area_sel"])
+                if st.session_state["fin_area_sel"] in fin_county_opts else 0
+            )
+            fin_area = st.selectbox(
+                "County / Statewide  *(click map to select)*",
+                fin_county_opts, index=_fa_idx, key="fin_area_dd",
+            )
+            st.session_state["fin_area_sel"] = fin_area
+
+            # Year
+            fin_years = sorted(fin_df["year"].unique().tolist())
+            fin_year  = st.selectbox("Year", ["All Years"] + fin_years, key="fin_year")
+
+            # Month
+            fin_month = st.selectbox(
+                "Month",
+                ["All Months"] + list(MONTH_NAMES.values()),
+                key="fin_month",
+            )
+
+            # Kind Code — single select, only codes with data for current year/area
+            _kc_src = fin_df.copy()
+            if fin_year != "All Years":
+                _kc_src = _kc_src[_kc_src["year"] == int(fin_year)]
+            if fin_area != "Florida (Statewide)":
+                _kc_src = _kc_src[_kc_src["county"] == fin_area]
+            kc_ref = (
+                _kc_src.sort_values("date")
+                .drop_duplicates(subset=["kind_code"], keep="last")
+                [["kind_code", "kind_name"]]
+                .sort_values("kind_code")
+            )
+            kc_options = [
+                f"{int(r.kind_code)} — {r.kind_name}" for _, r in kc_ref.iterrows()
+            ]
+            _kc_default_idx = next(
+                (i + 1 for i, k in enumerate(kc_options) if k.startswith("111 ")), 0
+            )
+            fin_kc_sel = st.selectbox(
+                "Kind Code (business type)",
+                ["All Kind Codes"] + kc_options,
+                index=_kc_default_idx,
+                key="fin_kc",
+            )
+            selected_kc = (
+                int(fin_kc_sel.split(" — ")[0]) if fin_kc_sel != "All Kind Codes" else None
+            )
+
+            fin_line_color = "#9d174d"  # dark pink, matches map palette
+
+        # ── Choropleth map ────────────────────────────────────────────────────
+        map_df = fin_df[fin_df["county"] != "Statewide"].copy()
+        if fin_year != "All Years":
+            map_df = map_df[map_df["year"] == int(fin_year)]
+        if fin_month != "All Months":
+            map_df = map_df[map_df["month"] == MONTH_NUM[fin_month]]
+        if selected_kc is not None:
+            map_df = map_df[map_df["kind_code"] == selected_kc]
+
+        county_sales = map_df.groupby("county", as_index=False)["gross_sales"].sum()
+
+        # Join to GEOID10 for choropleth
+        if county_meta is not None:
+            _name_geoid = dict(zip(county_meta["NAME10"], county_meta["GEOID10"]))
+            county_sales["GEOID"] = county_sales["county"].map(_name_geoid)
+            county_sales = county_sales.dropna(subset=["GEOID"])
+
+        # Scale to millions for readable colorbar tick labels
+        county_sales["gross_sales_M"] = county_sales["gross_sales"] / 1e6
+
+        yr_lbl  = str(fin_year)
+        mo_lbl  = fin_month
+        kc_lbl  = fin_kc_sel
+
+        with fin_map_col:
+            if county_sales.empty or "GEOID" not in county_sales.columns:
+                st.info("No map data for this selection.")
+            else:
+                fig_fin = px.choropleth(
+                    county_sales,
+                    geojson=fl_geojson,
+                    locations="GEOID",
+                    featureidkey="properties.GEOID10",
+                    color="gross_sales_M",
+                    hover_name="county",
+                    hover_data={
+                        "gross_sales": ":$,.0f",
+                        "gross_sales_M": False,
+                        "GEOID": False,
+                    },
+                    color_continuous_scale=[
+                        [0.00, "#fde8f0"],
+                        [0.18, "#f9c0d8"],
+                        [0.38, "#d5e9c0"],
+                        [0.55, "#8bc34a"],
+                        [0.68, "#f06292"],
+                        [0.84, "#e91e8c"],
+                        [1.00, "#880e4f"],
+                    ],
+                    labels={
+                        "gross_sales_M": "Gross Sales ($M)",
+                        "gross_sales": "Gross Sales",
+                    },
+                    title=f"Gross Sales by County — {yr_lbl} / {mo_lbl} / {kc_lbl}",
+                )
+                for _i, (_lons, _lats) in enumerate(state_rings):
+                    fig_fin.add_scattergeo(
+                        lon=_lons, lat=_lats, mode="lines",
+                        line=dict(color="black", width=1.5),
+                        showlegend=False, hoverinfo="skip",
+                        name=f"_fin_boundary_{_i}",
+                    )
+                # Gold boundary for selected county
+                if fin_area != "Florida (Statewide)" and county_meta is not None:
+                    _sel_geoid_list = county_sales[county_sales["county"] == fin_area]["GEOID"].tolist()
+                    if _sel_geoid_list:
+                        fig_fin.add_choropleth(
+                            geojson=fl_geojson,
+                            locations=_sel_geoid_list,
+                            featureidkey="properties.GEOID10",
+                            z=[1],
+                            colorscale=[[0, "rgba(0,0,0,0)"], [1, "rgba(0,0,0,0)"]],
+                            showscale=False,
+                            marker=dict(line=dict(color="gold", width=3)),
+                            hoverinfo="skip",
+                            name="selected",
+                        )
+                fig_fin.update_geos(fitbounds="locations", visible=False)
+                fig_fin.update_layout(
+                    height=500,
+                    margin={"r": 0, "t": 40, "l": 0, "b": 0},
+                    coloraxis_colorbar=dict(
+                        title="Gross Sales<br>($M = millions)",
+                        tickprefix="$",
+                        ticksuffix="M",
+                        tickformat=",.0f",
+                    ),
+                )
+                _fin_event = st.plotly_chart(
+                    fig_fin, use_container_width=True,
+                    on_select="rerun", selection_mode="points",
+                    key="fin_choropleth",
+                )
+
+                # Handle map click → update county dropdown
+                if (_fin_event and _fin_event.selection
+                        and _fin_event.selection.get("points")
+                        and county_meta is not None):
+                    _clicked_loc = _fin_event.selection["points"][0].get("location")
+                    if _clicked_loc:
+                        _geoid_to_name = dict(zip(county_meta["GEOID10"], county_meta["NAME10"]))
+                        _clicked_name = _geoid_to_name.get(_clicked_loc, "")
+                        if (_clicked_name
+                                and _clicked_name in fin_county_opts
+                                and _clicked_name != st.session_state.get("fin_area_sel")):
+                            st.session_state["fin_area_sel"] = _clicked_name
+                            st.rerun()
+
+        # ── Time series chart ─────────────────────────────────────────────────
+        st.markdown("---")
+
+        if fin_area == "Florida (Statewide)":
+            ts_df = fin_df[fin_df["county"] == "Statewide"].copy()
+        else:
+            ts_df = fin_df[fin_df["county"] == fin_area].copy()
+
+        # Apply all active filters to the time series
+        if fin_year != "All Years":
+            ts_df = ts_df[ts_df["year"] == int(fin_year)]
+        if fin_month != "All Months":
+            ts_df = ts_df[ts_df["month"] == MONTH_NUM[fin_month]]
+        if selected_kc is not None:
+            ts_df = ts_df[ts_df["kind_code"] == selected_kc]
+
+        ts_title = f"Monthly Gross Sales — {fin_area}"
+        if fin_year != "All Years":
+            ts_title += f"  |  {fin_year}"
+        if fin_month != "All Months":
+            ts_title += f"  |  {fin_month}"
+        if selected_kc is not None:
+            _kc_display = fin_kc_sel.split(" — ", 1)[-1] if " — " in fin_kc_sel else fin_kc_sel
+            ts_title += f"  |  {_kc_display}"
+
+        if ts_df.empty:
+            st.info("No time series data for this selection.")
+        else:
+            # Aggregate all selected months/kind code into one total line per date
+            ts_agg = ts_df.groupby("date", as_index=False)["gross_sales"].sum()
+            # Insert NaN for missing months so Plotly shows gaps instead of connecting lines
+            if not ts_agg.empty and fin_month == "All Months":
+                _full_range = pd.DataFrame({
+                    "date": pd.date_range(ts_agg["date"].min(), ts_agg["date"].max(), freq="MS")
+                })
+                ts_agg = _full_range.merge(ts_agg, on="date", how="left")
+            # Scale to millions so y-axis shows readable numbers (avoids Plotly's "G" for billions)
+            ts_agg["gross_sales_M"] = ts_agg["gross_sales"] / 1e6
+            fig_ts = px.line(
+                ts_agg.sort_values("date"),
+                x="date", y="gross_sales_M",
+                title=ts_title,
+                labels={"date": "Date", "gross_sales_M": "Gross Sales ($M)"},
+            )
+            fig_ts.update_traces(
+                line_color=fin_line_color, line_width=2,
+                mode="lines+markers",
+                marker=dict(size=4, color=fin_line_color),
+                connectgaps=False,
+            )
+
+            # When a single year is selected show every month; otherwise every 6 months
+            if fin_year != "All Years":
+                fig_ts.update_xaxes(dtick="M1", tickformat="%b %Y", tickangle=-45)
+            else:
+                fig_ts.update_xaxes(dtick="M6", tickformat="%b %Y", tickangle=-45)
+            fig_ts.update_yaxes(tickformat="$,.0f", ticksuffix="M")
+            fig_ts.update_xaxes(title_text="Date")
+            fig_ts.update_layout(
+                height=420,
+                plot_bgcolor="#f8f9fa",
+                hovermode="closest",
+                margin={"t": 60, "b": 40, "l": 80, "r": 20},
+            )
+            st.plotly_chart(fig_ts, use_container_width=True)
+
+
+            # Annual summary table
+            ann = (
+                ts_df.groupby("year", as_index=False)["gross_sales"]
+                .sum()
+                .rename(columns={"year": "Year", "gross_sales": "Gross Sales ($)"})
+                [["Year", "Gross Sales ($)"]]
+            )
+            st.markdown(f"**Annual totals — {fin_area}**")
+            st.dataframe(
+                ann.set_index("Year").style.format({"Gross Sales ($)": "${:,.0f}"}),
+                use_container_width=False, hide_index=False,
+            )
+
+            # ── Download section ──────────────────────────────────────────────
+            st.markdown("---")
+            st.markdown("**Download**")
+            _dl1, _dl2, _dl3 = st.columns(3)
+
+            _mo_slug   = fin_month.replace(" ", "") if fin_month != "All Months" else "AllMonths"
+            _area_slug = fin_area.replace(" ", "_")
+
+            # ── 1. CSV — raw data ─────────────────────────────────────────────
+            _csv_ts = ts_df[["county", "year", "month", "kind_code", "kind_name",
+                              "gross_sales", "date"]].copy()
+            _csv_ts = _csv_ts.rename(columns={
+                "date": "Date", "county": "County", "year": "Year",
+                "month": "Month", "kind_code": "Kind Code",
+                "kind_name": "Kind Name", "gross_sales": "Gross Sales ($)",
+            })
+            _dl1.download_button(
+                label="Download data (CSV)",
+                data=_csv_ts.to_csv(index=False).encode("utf-8"),
+                file_name=f"gross_sales_{_area_slug}_{fin_year}_{_mo_slug}.csv",
+                mime="text/csv",
+                use_container_width=True,
+            )
+
+            # ── 2. HTML Report — map + chart + table (no kaleido needed) ─────
+            # Embeds interactive Plotly figures; opens in any browser
+            _fig_map_html = ""
+            try:
+                _fig_map_html = fig_fin.to_html(
+                    include_plotlyjs="cdn", full_html=False,
+                    config={"responsive": True},
+                )
+            except Exception:
+                _fig_map_html = "<p><em>Map not available for this selection.</em></p>"
+
+            _fig_ts_html = fig_ts.to_html(
+                include_plotlyjs=False, full_html=False,
+                config={"responsive": True},
+            )
+            _ann_html = ann.to_html(index=True, border=0, classes="dt")
+
+            _html_report = f"""<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Florida Gross Sales — {fin_area} {fin_year}</title>
+<style>
+  body{{font-family:Arial,sans-serif;max-width:1400px;margin:0 auto;padding:24px;color:#222}}
+  h1{{color:#880e4f;margin-bottom:4px}}
+  .meta{{background:#fde8f0;border-radius:6px;padding:12px 20px;margin:12px 0 24px 0;font-size:.95rem;line-height:1.9}}
+  h2{{color:#880e4f;margin-top:36px;border-bottom:2px solid #fde8f0;padding-bottom:6px}}
+  .dt{{border-collapse:collapse;font-size:.9rem;margin-top:8px}}
+  .dt th,.dt td{{border:1px solid #ddd;padding:6px 16px;text-align:right}}
+  .dt th{{background:#fde8f0;color:#880e4f}}
+  footer{{margin-top:40px;color:#999;font-size:.8rem;border-top:1px solid #eee;padding-top:12px}}
+</style>
+</head>
+<body>
+<h1>Florida Gross Sales Report</h1>
+<div class="meta">
+  <b>Area:</b> {fin_area} &nbsp;&nbsp;
+  <b>Year:</b> {fin_year} &nbsp;&nbsp;
+  <b>Month(s):</b> {mo_lbl} &nbsp;&nbsp;
+  <b>Kind Code:</b> {kc_lbl}
+</div>
+<h2>Gross Sales Map by County</h2>
+{_fig_map_html}
+<h2>Monthly Gross Sales Chart</h2>
+{_fig_ts_html}
+<h2>Annual Totals</h2>
+{_ann_html}
+<footer>University of Central Florida (UCF) &nbsp;|&nbsp; Florida Gross Sales Activity 2010–2025 &nbsp;|&nbsp; Author: Bellah Harandi</footer>
+</body>
+</html>"""
+
+            _dl2.download_button(
+                label="Download report (HTML)",
+                data=_html_report.encode("utf-8"),
+                file_name=f"gross_sales_report_{_area_slug}_{fin_year}_{_mo_slug}.html",
+                mime="text/html",
+                use_container_width=True,
+                help="Opens in any browser — includes interactive map, chart, and table. No extra software needed.",
+            )
+
+            # ── 3. PDF Report (map + chart + table, requires kaleido) ───────────
+            try:
+                _W = 1400
+                # Metadata header image
+                _hdr = Image.new("RGB", (_W, 160), "#fde8f0")
+                _d = ImageDraw.Draw(_hdr)
+                _d.text((30, 18),  "Florida Gross Sales Report",                      fill="#880e4f")
+                _d.text((30, 55),  f"Area: {fin_area}     Year: {fin_year}     Month(s): {mo_lbl}", fill="#333333")
+                _d.text((30, 85),  f"Kind Code: {kc_lbl}",                            fill="#333333")
+                _d.line([(30, 118), (_W - 30, 118)], fill="#e0b0c0", width=1)
+                _d.text((30, 126), "University of Central Florida (UCF)  |  Author: Bellah Harandi  |  2026", fill="#888888")
+
+                _map_pil = Image.open(io.BytesIO(
+                    fig_fin.to_image(format="png", width=_W, height=700, scale=1)
+                )).convert("RGB")
+                _ts_pil = Image.open(io.BytesIO(
+                    fig_ts.to_image(format="png", width=_W, height=480, scale=1)
+                )).convert("RGB")
+
+                # Annual totals table image
+                _tbl_rows = [("Year", "Gross Sales")] + [
+                    (str(int(r["Year"])), f"${r['Gross Sales ($)']:,.0f}")
+                    for _, r in ann.iterrows()
+                ]
+                _row_h, _tbl_pad = 28, 48
+                _tbl_h = _tbl_pad + len(_tbl_rows) * _row_h
+                _tbl_img = Image.new("RGB", (_W, _tbl_h), "white")
+                _td = ImageDraw.Draw(_tbl_img)
+                _td.text((30, 12), "Annual Totals", fill="#880e4f")
+                for _ri, (_yr_v, _gs_v) in enumerate(_tbl_rows):
+                    _y = _tbl_pad + _ri * _row_h
+                    _bg = "#fde8f0" if _ri == 0 else ("#f9f0f4" if _ri % 2 == 0 else "white")
+                    _td.rectangle([(0, _y), (_W, _y + _row_h - 1)], fill=_bg)
+                    _clr = "#880e4f" if _ri == 0 else "#222222"
+                    _td.text((40, _y + 6), _yr_v, fill=_clr)
+                    _td.text((200, _y + 6), _gs_v, fill=_clr)
+
+                # Stack all images vertically into one PDF page
+                _total_h = 160 + _map_pil.height + _ts_pil.height + _tbl_h
+                _canvas = Image.new("RGB", (_W, _total_h), "white")
+                _canvas.paste(_hdr,    (0, 0))
+                _canvas.paste(_map_pil,(0, 160))
+                _canvas.paste(_ts_pil, (0, 160 + _map_pil.height))
+                _canvas.paste(_tbl_img,(0, 160 + _map_pil.height + _ts_pil.height))
+
+                _pdf_buf = io.BytesIO()
+                _canvas.save(_pdf_buf, format="PDF")
+                _dl3.download_button(
+                    label="Download report (PDF)",
+                    data=_pdf_buf.getvalue(),
+                    file_name=f"gross_sales_report_{_area_slug}_{fin_year}_{_mo_slug}.pdf",
+                    mime="application/pdf",
+                    use_container_width=True,
+                    help="PDF with map, chart, and annual totals. Requires kaleido.",
+                )
+            except Exception:
+                pass
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# TAB 6 — Hazards (NCEI Storm Events 1996–2024, Florida)
+# ─────────────────────────────────────────────────────────────────────────────
+with tab6:
+    st.subheader("Florida Hazard Events — NCEI Storm Database (1996–2024)")
+
+    df_hz = load_hazards_data()
+    if df_hz is None:
+        st.error(f"Hazards file not found:\n`{HAZARDS_PATH}`")
+    else:
+        # ── Sidebar-style filters (top row) ───────────────────────────────────
+        hz_f1, hz_f2, hz_f3, hz_f4 = st.columns([1, 1, 2, 2])
+
+        hz_yr_min, hz_yr_max = int(df_hz["start_year"].min()), int(df_hz["start_year"].max())
+        with hz_f1:
+            hz_year_range = st.slider(
+                "Year range", hz_yr_min, hz_yr_max,
+                (hz_yr_min, hz_yr_max), key="hz_year_range",
+            )
+        with hz_f2:
+            hz_metric = st.radio(
+                "Measure", ["Events", "Property Damage ($)", "Deaths", "Injuries"],
+                key="hz_metric",
+            )
+        with hz_f3:
+            all_event_types = sorted(df_hz["EVENT_TYPE"].dropna().unique())
+            hz_event_types = st.multiselect(
+                "Event type", all_event_types, default=all_event_types, key="hz_hazards",
+            )
+        with hz_f4:
+            hz_county_opts = ["All counties"] + sorted(df_hz["CZ_NAME"].dropna().unique())
+            hz_county = st.selectbox("County / Zone", hz_county_opts, key="hz_county")
+
+        st.markdown("---")
+
+        # ── Apply filters ─────────────────────────────────────────────────────
+        dff = df_hz[
+            (df_hz["start_year"] >= hz_year_range[0]) &
+            (df_hz["start_year"] <= hz_year_range[1]) &
+            (df_hz["EVENT_TYPE"].isin(hz_event_types))
+        ].copy()
+        if hz_county != "All counties":
+            dff = dff[dff["CZ_NAME"] == hz_county]
+
+        metric_col = {
+            "Events":               None,
+            "Property Damage ($)":  "ADJ_DAMAGE_PROPERTY",
+            "Deaths":               "TOTAL_DEATHS",
+            "Injuries":             "TOTAL_INJURIES",
+        }[hz_metric]
+
+        # ── KPI row ───────────────────────────────────────────────────────────
+        kpi1, kpi2, kpi3, kpi4 = st.columns(4)
+        kpi1.metric("Total events",      f"{len(dff):,}")
+        kpi2.metric("Property damage",   f"${dff['ADJ_DAMAGE_PROPERTY'].sum()/1e6:.1f} M")
+        kpi3.metric("Deaths",            f"{int(dff['TOTAL_DEATHS'].sum()):,}")
+        kpi4.metric("Injuries",          f"{int(dff['TOTAL_INJURIES'].sum()):,}")
+
+        st.markdown("---")
+
+        # ── Single clickable choropleth map ───────────────────────────────────
+        geo_json_hz, county_df_hz = load_county_geojson()
+
+        if metric_col is None:
+            county_agg = dff.groupby("GEOID").size().reset_index(name="value")
+            choro_label = "# Events"
+        else:
+            county_agg = dff.groupby("GEOID")[metric_col].sum().reset_index(name="value")
+            choro_label = hz_metric
+
+        if county_df_hz is not None:
+            county_agg = county_agg.merge(
+                county_df_hz.rename(columns={"GEOID10": "GEOID", "NAME10": "County"}),
+                on="GEOID", how="left",
+            )
+            # Build CZ_NAME → GEOID lookup (case-insensitive)
+            _czname_upper = {
+                str(v).upper(): k
+                for k, v in zip(county_df_hz["GEOID10"], county_df_hz["NAME10"])
+            }
+
+        if geo_json_hz is not None and not county_agg.empty:
+            fig_choro = px.choropleth_mapbox(
+                county_agg,
+                geojson=geo_json_hz,
+                locations="GEOID",
+                featureidkey="properties.GEOID10",
+                color="value",
+                color_continuous_scale="Reds",
+                hover_name="County",
+                hover_data={"value": ":,.0f", "GEOID": False},
+                labels={"value": choro_label},
+                mapbox_style="carto-positron",
+                zoom=5.5,
+                center={"lat": 27.8, "lon": -81.5},
+                title=f"{hz_metric} by county — click a county for details",
+                height=500,
+            )
+            fig_choro.update_layout(
+                margin={"r": 0, "t": 40, "l": 0, "b": 0},
+                coloraxis_colorbar=dict(title=choro_label),
+            )
+            _choro_event = st.plotly_chart(
+                fig_choro, use_container_width=True,
+                on_select="rerun", selection_mode="points",
+                key="hz_choro_map",
+            )
+        else:
+            st.info("County shapefile not available.")
+            _choro_event = None
+
+        # ── County detail panel (shown on click) ──────────────────────────────
+        _clicked_geoid = None
+        if (_choro_event and _choro_event.selection
+                and _choro_event.selection.get("points")):
+            _clicked_geoid = _choro_event.selection["points"][0].get("location")
+
+        if _clicked_geoid and county_df_hz is not None:
+            _geoid_to_name = dict(zip(county_df_hz["GEOID10"], county_df_hz["NAME10"]))
+            _clicked_name  = _geoid_to_name.get(_clicked_geoid, "")
+            # Match CZ_NAME case-insensitively
+            dff_county = dff[dff["CZ_NAME"].str.upper() == _clicked_name.upper()]
+
+            st.markdown(f"### {_clicked_name} County")
+            _ck1, _ck2, _ck3, _ck4 = st.columns(4)
+            _ck1.metric("Events",          f"{len(dff_county):,}")
+            _ck2.metric("Property damage", f"${dff_county['ADJ_DAMAGE_PROPERTY'].sum()/1e6:.1f} M")
+            _ck3.metric("Deaths",          f"{int(dff_county['TOTAL_DEATHS'].sum()):,}")
+            _ck4.metric("Injuries",        f"{int(dff_county['TOTAL_INJURIES'].sum()):,}")
+
+            _det1, _det2 = st.columns(2)
+
+            with _det1:
+                _top_types = (
+                    dff_county.groupby("EVENT_TYPE").size()
+                    .reset_index(name="Count")
+                    .sort_values("Count", ascending=False)
+                    .head(10)
+                )
+                fig_det_bar = px.bar(
+                    _top_types, x="EVENT_TYPE", y="Count",
+                    title="Event types",
+                    labels={"EVENT_TYPE": "Event type", "Count": "# Events"},
+                    color="Count", color_continuous_scale="Reds",
+                )
+                fig_det_bar.update_layout(
+                    height=360, showlegend=False,
+                    coloraxis_showscale=False,
+                    margin={"t": 40, "b": 80},
+                    xaxis=dict(tickangle=-35),
+                )
+                st.plotly_chart(fig_det_bar, use_container_width=True)
+
+            with _det2:
+                _ts_county = (
+                    dff_county.groupby(["start_year", "EVENT_TYPE"]).size()
+                    .reset_index(name="Count")
+                )
+                fig_det_ts = px.line(
+                    _ts_county, x="start_year", y="Count", color="EVENT_TYPE",
+                    title="Events per year by type",
+                    labels={"start_year": "Year", "Count": "# Events", "EVENT_TYPE": "Event type"},
+                    markers=True,
+                )
+                fig_det_ts.update_traces(line_width=2, marker=dict(size=5))
+                fig_det_ts.update_layout(
+                    height=360, plot_bgcolor="#f8f9fa",
+                    margin={"t": 40, "b": 10},
+                    legend=dict(font=dict(size=10), title="Event type"),
+                )
+                st.plotly_chart(fig_det_ts, use_container_width=True)
+
+        else:
+            st.caption("Click a county on the map to see its hazard breakdown.")
+
+        # ── Download ──────────────────────────────────────────────────────────
+        st.markdown("---")
+        dl_hz = dff[["start_year", "EVENT_TYPE", "HAZARD", "CZ_NAME",
+                      "ADJ_DAMAGE_PROPERTY", "TOTAL_DEATHS", "TOTAL_INJURIES"]].rename(columns={
+            "start_year": "Year", "CZ_NAME": "County",
+            "ADJ_DAMAGE_PROPERTY": "Damage_USD",
+        })
+        st.download_button(
+            label="Download filtered hazards data (CSV)",
+            data=dl_hz.to_csv(index=False).encode("utf-8"),
+            file_name=f"florida_hazards_{hz_year_range[0]}_{hz_year_range[1]}.csv",
+            mime="text/csv",
+        )
+
+
 # ── Footer ────────────────────────────────────────────────────────────────────
 st.markdown("---")
 st.caption(
     "Florida Population by Elevation (2010–2025)  |  "
-    "Author: Bella Harandi  |  University of Central Florida  |  2026  |  "
+    "Author: Bellah Harandi  |  "
+    "Supervisors: Ivan David Haigh, Thomas Wahl, Christopher Emrich  |  "
+    "University of Central Florida (UCF)  |  2026  |  "
     "Data: WorldPop 100 m rasters + USGS 1/3 arc-second DEM"
 )
