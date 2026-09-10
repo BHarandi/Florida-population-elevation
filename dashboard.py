@@ -635,15 +635,9 @@ def get_dem_overlay(geom_wkt: str, unit_k: str):
 @st.cache_data(show_spinner="Computing flood overlay …")
 def get_flood_overlay(geom_wkt: str, sea_level_m: float):
     """
-    Color pixels hydrologically connected to the ocean at sea_level_m as
-    flooded (red). Already connected at present-day MSL → deep blue. Land
-    that's low but cut off from the ocean by higher ground (and so wouldn't
-    actually flood) stays transparent, same as safe land.
-
-    Uses the precomputed hydro_connect_threshold_m.tif (see
-    build_hydro_connectivity.py) instead of raw DEM elevation — a plain
-    elevation threshold would flag isolated inland depressions as flooded
-    even though no water can reach them.
+    Color pixels connected to the ocean at sea_level_m as flooded (red);
+    already connected today → blue. Uses hydro_connect_threshold_m.tif
+    (build_hydro_connectivity.py) so isolated depressions aren't flagged.
     Returns (data_uri_png, [west, south, east, north]) or (None, None).
     """
     if not os.path.exists(HYDRO_CONNECT_PATH):
@@ -704,28 +698,15 @@ def get_flood_overlay(geom_wkt: str, sea_level_m: float):
 @st.cache_data(show_spinner="Computing population at risk from raster data…")
 def compute_population_at_risk(geom_wkt: str, year: int, threshold_m: float):
     """
-    Sum population hydrologically connected to the ocean at `threshold_m`
-    (NAVD88) within the geometry, sampling the precomputed hydro-connectivity
-    raster and WorldPop population raster together, pixel by pixel.
+    Sum population connected to the ocean at `threshold_m` (NAVD88), sampling
+    hydro_connect_threshold_m.tif and the WorldPop raster together, pixel by
+    pixel — a pre-aggregated elevation-band table can't say a band is at risk
+    until its whole range is submerged.
 
-    Compares against hydro_connect_threshold_m.tif rather than raw DEM
-    elevation, so population in low-lying but hydrologically isolated
-    depressions (no path to the ocean) isn't counted as at risk — see
-    build_hydro_connectivity.py.
+    Processes in row chunks via windowed reads to keep memory low regardless
+    of area size (statewide would otherwise need ~300MB+ arrays at once).
 
-    A pre-aggregated elevation-band table can only say a band is at risk once its
-    *entire* range is submerged, which undercounts (or reports zero) whenever the
-    threshold falls in the middle of a band. Sampling both rasters directly avoids
-    that assumption.
-
-    Processes the area in horizontal chunks via windowed reads, rather than loading
-    the whole cropped raster into memory at once — a statewide query would otherwise
-    need to hold ~300 MB+ arrays at once, which can exceed Streamlit Cloud's memory
-    limit and crash the app. Chunking keeps peak memory to a few tens of MB
-    regardless of how large the selected area is.
-
-    Returns (pop_at_risk, pop_total), or (None, None) if either raster is
-    unavailable (including a broken/un-uploaded Git LFS pointer stub).
+    Returns (pop_at_risk, pop_total), or (None, None) if a raster is unavailable.
     """
     pop_path = os.path.join(WORLDPOP_DIR, f"pop_{year}_florida.tif")
     if not os.path.exists(HYDRO_CONNECT_PATH) or _is_lfs_pointer_stub(HYDRO_CONNECT_PATH):
