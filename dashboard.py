@@ -1,7 +1,7 @@
 """
 Florida Population by Elevation — Streamlit Dashboard
 Author: Bellah Harandi
-Date: July 2026
+Date: July-September 2026
 
 Run: python -m streamlit run dashboard.py
 """
@@ -58,6 +58,7 @@ DATA_PATH  = os.path.join(_BASE, "data", "population_by_elevation.parquet")
 COUNTY_SHP = os.path.join(_BASE, "data", "shp", "counties", "tl_2010_12_county10.shp")
 STATE_SHP  = os.path.join(_BASE, "data", "shp", "state",    "tl_2020_12_state.shp")
 DEM_PATH      = os.path.join(_BASE, "data", "dem_florida_100m.tif")
+HYDRO_CONNECT_PATH = os.path.join(_BASE, "data", "hydro_connect_threshold_m.tif")
 _wp_local     = os.path.join(_BASE, "data", "worldpop_wgs84")
 WORLDPOP_DIR  = _wp_local if os.path.isdir(_wp_local) else r"E:\2026\Datasets\worldpop-data\wgs84"
 _HAZARDS_LOCAL  = os.path.join(_BASE, "data", "Florida_Hazards_1996-2024.parquet")
@@ -634,11 +635,18 @@ def get_dem_overlay(geom_wkt: str, unit_k: str):
 @st.cache_data(show_spinner="Computing flood overlay …")
 def get_flood_overlay(geom_wkt: str, sea_level_m: float):
     """
-    Color pixels with elevation <= sea_level_m as flooded (red).
-    Already below 0 m → deep blue. Safe land → transparent.
+    Color pixels hydrologically connected to the ocean at sea_level_m as
+    flooded (red). Already connected at present-day MSL → deep blue. Land
+    that's low but cut off from the ocean by higher ground (and so wouldn't
+    actually flood) stays transparent, same as safe land.
+
+    Uses the precomputed hydro_connect_threshold_m.tif (see
+    build_hydro_connectivity.py) instead of raw DEM elevation — a plain
+    elevation threshold would flag isolated inland depressions as flooded
+    even though no water can reach them.
     Returns (data_uri_png, [west, south, east, north]) or (None, None).
     """
-    if not os.path.exists(DEM_PATH):
+    if not os.path.exists(HYDRO_CONNECT_PATH):
         return None, None
 
     try:
@@ -650,7 +658,7 @@ def get_flood_overlay(geom_wkt: str, sea_level_m: float):
         return None, None
 
     try:
-        with rasterio.open(DEM_PATH) as src:
+        with rasterio.open(HYDRO_CONNECT_PATH) as src:
             out_image, out_transform = rio_mask(
                 src, [geom_4269.__geo_interface__], crop=True, filled=False,
             )
@@ -658,8 +666,8 @@ def get_flood_overlay(geom_wkt: str, sea_level_m: float):
         return None, None
 
     from rasterio.features import geometry_mask
-    dem_ma = out_image[0]
-    h, w = dem_ma.shape
+    thr_ma = out_image[0]
+    h, w = thr_ma.shape
     if h == 0 or w == 0:
         return None, None
 
@@ -667,7 +675,7 @@ def get_flood_overlay(geom_wkt: str, sea_level_m: float):
         [geom_4269.__geo_interface__],
         out_shape=(h, w), transform=out_transform, invert=False,
     )
-    dem = dem_ma.filled(np.nan).astype(np.float32)
+    thr = thr_ma.filled(np.nan).astype(np.float32)
 
     west  = out_transform.c
     north = out_transform.f
@@ -677,13 +685,13 @@ def get_flood_overlay(geom_wkt: str, sea_level_m: float):
     MAX_PX = 2000
     step_h = max(1, h // MAX_PX)
     step_w = max(1, w // MAX_PX)
-    dem_ds          = dem[::step_h, ::step_w]
+    thr_ds          = thr[::step_h, ::step_w]
     poly_outside_ds = poly_outside[::step_h, ::step_w]
-    valid           = ~np.isnan(dem_ds) & ~poly_outside_ds
+    valid           = ~np.isnan(thr_ds) & ~poly_outside_ds
 
-    rgba = np.zeros((dem_ds.shape[0], dem_ds.shape[1], 4), dtype=np.uint8)
-    rgba[valid & (dem_ds < 0)]                             = [ 30, 100, 210, 200]  # blue — already below sea level
-    rgba[valid & (dem_ds >= 0) & (dem_ds <= sea_level_m)] = [220,   0,   0, 160]  # vivid red semi-transparent — flooded
+    rgba = np.zeros((thr_ds.shape[0], thr_ds.shape[1], 4), dtype=np.uint8)
+    rgba[valid & (thr_ds <= 0)]                            = [ 30, 100, 210, 200]  # blue — already connected at present MSL
+    rgba[valid & (thr_ds > 0) & (thr_ds <= sea_level_m)]   = [220,   0,   0, 160]  # vivid red semi-transparent — newly flooded
     rgba[poly_outside_ds]                                  = [  0,   0,   0,   0]  # transparent outside
 
     img = Image.fromarray(rgba, "RGBA")
@@ -696,8 +704,14 @@ def get_flood_overlay(geom_wkt: str, sea_level_m: float):
 @st.cache_data(show_spinner="Computing population at risk from raster data…")
 def compute_population_at_risk(geom_wkt: str, year: int, threshold_m: float):
     """
-    Sum population living at or below `threshold_m` (NAVD88) within the geometry,
-    sampling the DEM and WorldPop population raster together, pixel by pixel.
+    Sum population hydrologically connected to the ocean at `threshold_m`
+    (NAVD88) within the geometry, sampling the precomputed hydro-connectivity
+    raster and WorldPop population raster together, pixel by pixel.
+
+    Compares against hydro_connect_threshold_m.tif rather than raw DEM
+    elevation, so population in low-lying but hydrologically isolated
+    depressions (no path to the ocean) isn't counted as at risk — see
+    build_hydro_connectivity.py.
 
     A pre-aggregated elevation-band table can only say a band is at risk once its
     *entire* range is submerged, which undercounts (or reports zero) whenever the
@@ -714,7 +728,7 @@ def compute_population_at_risk(geom_wkt: str, year: int, threshold_m: float):
     unavailable (including a broken/un-uploaded Git LFS pointer stub).
     """
     pop_path = os.path.join(WORLDPOP_DIR, f"pop_{year}_florida.tif")
-    if not os.path.exists(DEM_PATH) or _is_lfs_pointer_stub(DEM_PATH):
+    if not os.path.exists(HYDRO_CONNECT_PATH) or _is_lfs_pointer_stub(HYDRO_CONNECT_PATH):
         return None, None
     if not os.path.exists(pop_path) or _is_lfs_pointer_stub(pop_path):
         return None, None
@@ -737,33 +751,33 @@ def compute_population_at_risk(geom_wkt: str, year: int, threshold_m: float):
     pop_at_risk = 0.0
 
     try:
-        with rasterio.open(DEM_PATH) as dem_src, rasterio.open(pop_path) as pop_src:
+        with rasterio.open(HYDRO_CONNECT_PATH) as thr_src, rasterio.open(pop_path) as pop_src:
             minx, miny, maxx, maxy = geom_4269.bounds
-            dem_window = from_bounds(minx, miny, maxx, maxy, transform=dem_src.transform)
-            dem_window = dem_window.round_offsets().round_lengths()
-            dem_window = dem_window.intersection(Window(0, 0, dem_src.width, dem_src.height))
-            if dem_window.width <= 0 or dem_window.height <= 0:
+            thr_window = from_bounds(minx, miny, maxx, maxy, transform=thr_src.transform)
+            thr_window = thr_window.round_offsets().round_lengths()
+            thr_window = thr_window.intersection(Window(0, 0, thr_src.width, thr_src.height))
+            if thr_window.width <= 0 or thr_window.height <= 0:
                 return None, None
 
-            total_rows = int(dem_window.height)
+            total_rows = int(thr_window.height)
             pop_crs    = pop_src.crs
             pop_nodata = pop_src.nodata
 
             for row_off in range(0, total_rows, CHUNK_ROWS):
                 h = min(CHUNK_ROWS, total_rows - row_off)
-                sub_window = Window(dem_window.col_off, dem_window.row_off + row_off,
-                                     dem_window.width, h)
-                dem_transform = dem_src.window_transform(sub_window)
+                sub_window = Window(thr_window.col_off, thr_window.row_off + row_off,
+                                     thr_window.width, h)
+                thr_transform = thr_src.window_transform(sub_window)
 
-                dem_chunk = dem_src.read(1, window=sub_window, masked=True)
-                if dem_chunk.size == 0:
+                thr_chunk = thr_src.read(1, window=sub_window, masked=True)
+                if thr_chunk.size == 0:
                     continue
 
-                chunk_bounds = window_bounds(sub_window, dem_src.transform)
+                chunk_bounds = window_bounds(sub_window, thr_src.transform)
                 poly_outside = geometry_mask(
                     [geom_4269.__geo_interface__],
-                    out_shape=dem_chunk.shape,
-                    transform=dem_transform,
+                    out_shape=thr_chunk.shape,
+                    transform=thr_transform,
                     invert=False,
                 )
 
@@ -778,28 +792,28 @@ def compute_population_at_risk(geom_wkt: str, year: int, threshold_m: float):
                 pop_chunk = pop_src.read(1, window=pop_window)
                 pop_chunk_transform = pop_src.window_transform(pop_window)
 
-                pop_aligned = np.full(dem_chunk.shape, np.nan, dtype=np.float32)
+                pop_aligned = np.full(thr_chunk.shape, np.nan, dtype=np.float32)
                 reproject(
                     source=pop_chunk.astype(np.float32),
                     destination=pop_aligned,
                     src_transform=pop_chunk_transform,
                     src_crs=pop_crs,
-                    dst_transform=dem_transform,
+                    dst_transform=thr_transform,
                     dst_crs="EPSG:4269",
                     resampling=Resampling.nearest,
                     src_nodata=pop_nodata if pop_nodata is not None else np.nan,
                     dst_nodata=np.nan,
                 )
 
-                dem_vals = dem_chunk.filled(np.nan).astype(np.float32)
+                thr_vals = thr_chunk.filled(np.nan).astype(np.float32)
                 valid = (
-                    ~np.isnan(dem_vals) & ~np.isnan(pop_aligned) &
+                    ~np.isnan(thr_vals) & ~np.isnan(pop_aligned) &
                     (pop_aligned >= 0) & ~poly_outside
                 )
                 if not valid.any():
                     continue
                 pop_total   += float(np.nansum(pop_aligned[valid]))
-                pop_at_risk += float(np.nansum(pop_aligned[valid & (dem_vals <= threshold_m)]))
+                pop_at_risk += float(np.nansum(pop_aligned[valid & (thr_vals <= threshold_m)]))
     except Exception:
         return None, None
 
@@ -2048,8 +2062,8 @@ with tab3:
                     "opacity": 0.85,
                     "below": "traces",
                 }]
-            elif flood_img is None and not os.path.exists(DEM_PATH):
-                st.warning("DEM file not found — flood overlay unavailable.")
+            elif flood_img is None and not os.path.exists(HYDRO_CONNECT_PATH):
+                st.warning("Hydro-connectivity raster not found — flood overlay unavailable.")
 
             fig_slr.update_layout(
                 **_map_layout(**mapbox_cfg_slr),
@@ -2086,7 +2100,7 @@ with tab3:
                     f"Local tidal datums (NAVD88): {', '.join(_datum_bits)}."
                 )
 
-    # ── Population at risk — computed pixel-by-pixel from DEM + population raster ──
+    # ── Population at risk — computed pixel-by-pixel from hydro-connectivity + population raster ──
     st.markdown("---")
     st.markdown(f"**Population at risk — {slr_area} ({slr_year}) at {_scenario_desc}**")
 
@@ -2098,7 +2112,7 @@ with tab3:
     if _raster_pop_at_risk is not None:
         at_risk_pop   = _raster_pop_at_risk
         total_pop_slr = _raster_pop_total
-        _risk_source  = "computed directly from the DEM and population rasters, pixel by pixel"
+        _risk_source  = "computed directly from the hydro-connectivity and population rasters, pixel by pixel"
     else:
         scope_slr = "Statewide" if slr_area == "Florida (Statewide)" else "County"
         at_risk_df = df_all[
