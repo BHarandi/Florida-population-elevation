@@ -164,12 +164,12 @@ BAND_MAP_M_TO_FT = dict(zip(BAND_ORDER_M, BAND_ORDER_FT))
 BAND_MAP_FT_TO_M = dict(zip(BAND_ORDER_FT, BAND_ORDER_M))
 
 BAND_COLORS_M = {
-    "0-1 m":   "#4575b4", "1-2 m":   "#1a9850", "2-5 m":   "#66bd63",
+    "0-1 m":   "#fee090", "1-2 m":   "#1a9850", "2-5 m":   "#66bd63",
     "5-10 m":  "#a6d96a", "10-25 m": "#d4aa4a", "25-50 m": "#a06020",
     "50+ m":   "#6b3a0f",
 }
 BAND_COLORS_FT = {
-    "0-3 ft":   "#4575b4", "3-7 ft":   "#1a9850", "7-16 ft":  "#66bd63",
+    "0-3 ft":   "#fee090", "3-7 ft":   "#1a9850", "7-16 ft":  "#66bd63",
     "16-33 ft": "#a6d96a", "33-82 ft": "#d4aa4a", "82-164 ft":"#a06020",
     "164+ ft":  "#6b3a0f",
 }
@@ -577,7 +577,7 @@ def get_dem_overlay(geom_wkt: str, unit_k: str):
     if unit_k == "Feet":
         bands = [
             (-9999,  0,   ( 33, 102, 172)),   # below 0 ft  — deep blue
-            (    0,  3,   ( 69, 117, 180)),   # 0–3 ft      — blue
+            (    0,  3,   (254, 224, 144)),   # 0–3 ft      — amber
             (    3,  7,   ( 26, 152,  80)),   # 3–7 ft      — dark green
             (    7, 16,   (102, 189,  99)),   # 7–16 ft     — medium green
             (   16, 33,   (166, 217, 106)),   # 16–33 ft    — light green
@@ -590,7 +590,7 @@ def get_dem_overlay(geom_wkt: str, unit_k: str):
     else:
         bands = [
             (-9999,  0,   ( 33, 102, 172)),   # below 0 m  — deep blue
-            (    0,  1,   ( 69, 117, 180)),   # 0–1 m      — #4575b4
+            (    0,  1,   (254, 224, 144)),   # 0–1 m      — #fee090 amber
             (    1,  2,   ( 26, 152,  80)),   # 1–2 m      — #1a9850
             (    2,  5,   (102, 189,  99)),   # 2–5 m      — #66bd63
             (    5, 10,   (166, 217, 106)),   # 5–10 m     — #a6d96a
@@ -1066,7 +1066,7 @@ def _dem_legend_html(unit_k: str) -> str:
     if unit_k == "Feet":
         items = [
             ("#08306b", "below 0 ft"),
-            ("#4575b4", "0–3 ft"),
+            ("#fee090", "0–3 ft"),
             ("#1a9850", "3–7 ft"),
             ("#66bd63", "7–16 ft"),
             ("#a6d96a", "16–33 ft"),
@@ -1077,7 +1077,7 @@ def _dem_legend_html(unit_k: str) -> str:
     else:
         items = [
             ("#08306b", "below 0 m"),
-            ("#4575b4", "0–1 m"),
+            ("#fee090", "0–1 m"),
             ("#1a9850", "1–2 m"),
             ("#66bd63", "2–5 m"),
             ("#a6d96a", "5–10 m"),
