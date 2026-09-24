@@ -1977,7 +1977,7 @@ with tab3:
         tide_available    = tide_df is not None
         _slr_mode_options = []
         if tide_available:
-            _slr_mode_options += ["MHHW (Mean Higher High Water)", "MHW (Mean High Water)"]
+            _slr_mode_options += ["MHHW (Mean Higher High Water)", "MHW (Mean High Water)", "MSL (Mean Sea Level)"]
         if esl_available:
             _slr_mode_options.append("Extreme sea level (tide + storm surge)")
         _slr_mode_options.append("Custom level (m NAVD88)")
@@ -2014,8 +2014,8 @@ with tab3:
             )
             slr_m, slr_label = None, None  # resolved after geometry
         else:
-            # MHHW or MHW — datum resolved after geometry; extra rise chosen here
-            _datum_short = "MHHW" if "MHHW" in slr_mode else "MHW"
+            # MHHW, MHW, or MSL — datum resolved after geometry; extra rise chosen here
+            _datum_short = "MHHW" if "MHHW" in slr_mode else ("MSL" if "MSL" in slr_mode else "MHW")
             if slr_use_feet:
                 _extra_ft   = st.slider(
                     f"SLR above {_datum_short} (ft)", 0.0, 10.0, 0.0, 0.5,
@@ -2109,6 +2109,20 @@ with tab3:
                 )
             else:
                 slr_label = f"MHW — {slr_m:.2f} m / {slr_ft:.1f} ft NAVD88"
+
+        elif slr_mode == "MSL (Mean Sea Level)":
+            _datum_m  = float(_nearest_station["MSL"])
+            slr_m     = _datum_m + slr_extra_m
+            slr_ft    = slr_m * 3.28084
+            _extra_ft = slr_extra_m * 3.28084
+            if slr_extra_m > 0:
+                slr_label = (
+                    f"MSL + {_extra_ft:.1f} ft SLR — {slr_m:.2f} m / {slr_ft:.1f} ft NAVD88"
+                    if slr_use_feet else
+                    f"MSL + {slr_extra_m:.2f} m SLR — {slr_m:.2f} m / {slr_ft:.1f} ft NAVD88"
+                )
+            else:
+                slr_label = f"MSL — {slr_m:.2f} m / {slr_ft:.1f} ft NAVD88"
 
         elif slr_mode == "Extreme sea level (tide + storm surge)":
             _esl_method    = ESL_METHODS[esl_method_label]
@@ -3304,7 +3318,7 @@ with tab7:
             _waste_tide_available = tide_df is not None
             _waste_mode_options   = []
             if _waste_tide_available:
-                _waste_mode_options += ["MHHW (Mean Higher High Water)", "MHW (Mean High Water)"]
+                _waste_mode_options += ["MHHW (Mean Higher High Water)", "MHW (Mean High Water)", "MSL (Mean Sea Level)"]
             if esl_available:
                 _waste_mode_options.append("Extreme sea level (tide + storm surge)")
             _waste_mode_options.append("Custom level (m NAVD88)")
@@ -3336,8 +3350,8 @@ with tab7:
                         help="How often a storm tide of this height is expected to occur, on average.",
                     )
                 else:
-                    # MHHW or MHW — extra rise slider
-                    _w_datum_short = "MHHW" if "MHHW" in waste_mode else "MHW"
+                    # MHHW, MHW, or MSL — extra rise slider
+                    _w_datum_short = "MHHW" if "MHHW" in waste_mode else ("MSL" if "MSL" in waste_mode else "MHW")
                     if waste_use_feet:
                         _w_extra_ft   = st.slider(
                             f"SLR above {_w_datum_short} (ft)", 0.0, 10.0, 0.0, 0.5,
@@ -3415,6 +3429,18 @@ with tab7:
                     )
                 else:
                     waste_slr_label = f"MHW — {waste_slr_m:.2f} m / {waste_slr_m * 3.28084:.1f} ft NAVD88"
+            elif waste_mode == "MSL (Mean Sea Level)":
+                _w_datum_m  = float(_nearest_station["MSL"])
+                waste_slr_m = _w_datum_m + waste_extra_m
+                _w_extra_ft = waste_extra_m * 3.28084
+                if waste_extra_m > 0:
+                    waste_slr_label = (
+                        f"MSL + {_w_extra_ft:.1f} ft SLR — {waste_slr_m:.2f} m / {waste_slr_m * 3.28084:.1f} ft NAVD88"
+                        if waste_use_feet else
+                        f"MSL + {waste_extra_m:.2f} m SLR — {waste_slr_m:.2f} m / {waste_slr_m * 3.28084:.1f} ft NAVD88"
+                    )
+                else:
+                    waste_slr_label = f"MSL — {waste_slr_m:.2f} m / {waste_slr_m * 3.28084:.1f} ft NAVD88"
             elif waste_mode == "Extreme sea level (tide + storm surge)":
                 _esl_method    = ESL_METHODS[waste_esl_method_label]
                 _esl_stat      = ESL_STATS[waste_esl_stat_label]
