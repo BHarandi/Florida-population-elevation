@@ -885,6 +885,24 @@ def get_waste_facilities_with_threshold():
             gdf["_hydro_threshold_m"] = [v[0] for v in src.sample(zip(lons, lats))]
     except Exception:
         gdf["_hydro_threshold_m"] = np.nan
+
+    # Sample DEM elevation at each facility location
+    if os.path.exists(DEM_PATH) and not _is_lfs_pointer_stub(DEM_PATH):
+        try:
+            with rasterio.open(DEM_PATH) as src:
+                _nd = src.nodata
+                _elevs = [v[0] for v in src.sample(zip(lons, lats))]
+            def _clean_elev(e):
+                e = float(e)
+                if _nd is not None and abs(e - float(_nd)) < 1:
+                    return np.nan
+                return e if np.isfinite(e) else np.nan
+            gdf["_elev_m"] = [_clean_elev(e) for e in _elevs]
+        except Exception:
+            gdf["_elev_m"] = np.nan
+    else:
+        gdf["_elev_m"] = np.nan
+
     return gdf, None
 
 
@@ -3484,9 +3502,16 @@ with tab7:
 
                 _hover = [
                     f"<b>{n}</b><br>{c}<br>Status: {s}<br>County: {co}"
-                    for n, c, s, co in zip(
+                    + (
+                        f"<br>Elevation: {e * 3.28084:.1f} ft NAVD88"
+                        if waste_use_feet and pd.notna(e) else
+                        f"<br>Elevation: {e:.2f} m NAVD88"
+                        if pd.notna(e) else ""
+                    )
+                    for n, c, s, co, e in zip(
                         _wdf["FACILITY_NAME"].fillna("—"), _wdf["CLASS"],
                         _wdf["FACILITY_STATUS"].fillna("—"), _wdf["COUNTY"].fillna("—"),
+                        _wdf["_elev_m"],
                     )
                 ]
                 fig_waste.add_trace(ScatterMapTrace(
@@ -3529,6 +3554,12 @@ with tab7:
                 m3.metric("% at risk", f"{100 * _n_risk / _n_total:.1f}%" if _n_total else "—")
 
                 st.markdown(f"**At-risk facilities at {waste_slr_label} sea level rise**")
+                _elev_col  = "Elevation (ft NAVD88)" if waste_use_feet else "Elevation (m NAVD88)"
+                _elev_vals = (
+                    (_wdf[_at_risk]["_elev_m"] * 3.28084).round(1)
+                    if waste_use_feet else
+                    _wdf[_at_risk]["_elev_m"].round(2)
+                )
                 _risk_table = (
                     _wdf[_at_risk][["FACILITY_NAME", "CLASS", "FACILITY_STATUS", "COUNTY",
                                      "ADDRESS", "OWNERSHIP", "_hydro_threshold_m"]]
@@ -3537,6 +3568,7 @@ with tab7:
                         "COUNTY": "County", "ADDRESS": "Address", "OWNERSHIP": "Ownership",
                         "_hydro_threshold_m": "Connects at (m NAVD88)",
                     })
+                    .assign(**{_elev_col: _elev_vals.values})
                     .sort_values("Connects at (m NAVD88)")
                 )
                 st.dataframe(_risk_table, use_container_width=True, hide_index=True)
