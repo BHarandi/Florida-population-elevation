@@ -57,7 +57,8 @@ _BASE      = os.path.dirname(os.path.abspath(__file__))
 DATA_PATH  = os.path.join(_BASE, "data", "population_by_elevation.parquet")
 COUNTY_SHP = os.path.join(_BASE, "data", "shp", "counties", "tl_2010_12_county10.shp")
 STATE_SHP  = os.path.join(_BASE, "data", "shp", "state",    "tl_2020_12_state.shp")
-DEM_PATH      = os.path.join(_BASE, "data", "dem_florida_100m.tif")
+DEM_PATH           = os.path.join(_BASE, "data", "dem_florida_100m.tif")
+WATER_MASK_PATH    = os.path.join(_BASE, "data", "water_mask_nlcd2021_fl.tif")
 HYDRO_CONNECT_PATH = os.path.join(_BASE, "data", "hydro_connect_threshold_m.tif")
 _wp_local     = os.path.join(_BASE, "data", "worldpop_wgs84")
 WORLDPOP_DIR  = _wp_local if os.path.isdir(_wp_local) else r"E:\2026\Datasets\worldpop-data\wgs84"
@@ -73,6 +74,13 @@ TIDE_DATUMS_PATH = _TIDE_LOCAL if os.path.exists(_TIDE_LOCAL) else _TIDE_GITHUB
 _ESL_LOCAL  = os.path.join(_BASE, "data", "esl_return_levels_fl.parquet")
 _ESL_GITHUB = "https://raw.githubusercontent.com/BHarandi/Florida-population-elevation/main/data/esl_return_levels_fl.parquet"
 ESL_PATH    = _ESL_LOCAL if os.path.exists(_ESL_LOCAL) else _ESL_GITHUB
+
+# FDEP Solid Waste Facilities (statewide, from services1.arcgis.com/9lDFdeC4JIBgML6L/
+# .../FDEP_Solid_Waste_Facilities/FeatureServer/260 — see data/Solid Waste/ for how it
+# was pulled). Points, one row per permitted/registered facility.
+_WASTE_LOCAL  = os.path.join(_BASE, "data", "Solid Waste", "Solid_Waste_Facilities.parquet")
+_WASTE_GITHUB = "https://raw.githubusercontent.com/BHarandi/Florida-population-elevation/main/data/Solid%20Waste/Solid_Waste_Facilities.parquet"
+WASTE_PATH    = _WASTE_LOCAL if os.path.exists(_WASTE_LOCAL) else _WASTE_GITHUB
 
 # ── Infrastructure data paths ──────────────────────────────────────────────────
 # Primary source: GitHub raw URLs (public — works for everyone).
@@ -223,7 +231,7 @@ def load_hazards_data():
         return None
     cols = [
         "GEOID", "CZ_NAME", "EVENT_TYPE", "HAZARD",
-        "start_year", "BEGIN_LAT", "BEGIN_LON",
+        "start_year", "BEGIN_LAT", "BEGIN_LON", "BEGIN_DATETIME",
         "ADJ_DAMAGE_PROPERTY", "TOTAL_DEATHS", "TOTAL_INJURIES",
     ]
     try:
@@ -601,6 +609,22 @@ def get_dem_overlay(geom_wkt: str, unit_k: str):
         px = (dem_disp >= low) & (dem_disp < high)
         rgba[px] = [r, g, b, 205]
         label_arr[px] = lbl
+
+    # Mask out water bodies — USGS DEM stores water-surface elevation values
+    # (not NoData) for bays/ocean, so without this they render as coloured land.
+    if os.path.exists(WATER_MASK_PATH):
+        try:
+            with rasterio.open(WATER_MASK_PATH) as wm:
+                wm_image, _ = rio_mask(
+                    wm, [geom_4269.__geo_interface__], crop=True,
+                    filled=True, nodata=0,
+                )
+            water_ds = wm_image[0][::step_h, ::step_w].astype(bool)
+            rgba[water_ds] = [0, 0, 0, 0]       # transparent for open water
+            label_arr[water_ds] = ""
+        except Exception:
+            pass
+
     # Outside polygon → fully transparent
     rgba[poly_outside_ds] = [0, 0, 0, 0]
     # Inside polygon but DEM has no data (bridges, buildings, gaps) → neutral gray
@@ -635,15 +659,9 @@ def get_dem_overlay(geom_wkt: str, unit_k: str):
 @st.cache_data(show_spinner="Computing flood overlay …")
 def get_flood_overlay(geom_wkt: str, sea_level_m: float):
     """
-    Color pixels hydrologically connected to the ocean at sea_level_m as
-    flooded (red). Already connected at present-day MSL → deep blue. Land
-    that's low but cut off from the ocean by higher ground (and so wouldn't
-    actually flood) stays transparent, same as safe land.
-
-    Uses the precomputed hydro_connect_threshold_m.tif (see
-    build_hydro_connectivity.py) instead of raw DEM elevation — a plain
-    elevation threshold would flag isolated inland depressions as flooded
-    even though no water can reach them.
+    Color pixels connected to the ocean at sea_level_m as flooded (red);
+    already connected today → blue. Uses hydro_connect_threshold_m.tif
+    (build_hydro_connectivity.py) so isolated depressions aren't flagged.
     Returns (data_uri_png, [west, south, east, north]) or (None, None).
     """
     if not os.path.exists(HYDRO_CONNECT_PATH):
@@ -690,9 +708,23 @@ def get_flood_overlay(geom_wkt: str, sea_level_m: float):
     valid           = ~np.isnan(thr_ds) & ~poly_outside_ds
 
     rgba = np.zeros((thr_ds.shape[0], thr_ds.shape[1], 4), dtype=np.uint8)
-    rgba[valid & (thr_ds <= 0)]                            = [ 30, 100, 210, 200]  # blue — already connected at present MSL
-    rgba[valid & (thr_ds > 0) & (thr_ds <= sea_level_m)]   = [220,   0,   0, 160]  # vivid red semi-transparent — newly flooded
-    rgba[poly_outside_ds]                                  = [  0,   0,   0,   0]  # transparent outside
+    rgba[valid & (thr_ds <= 0)]                           = [ 30, 100, 210, 200]  # blue — already connected at present MSL
+    rgba[valid & (thr_ds > 0) & (thr_ds <= sea_level_m)] = [220,   0,   0, 160]  # vivid red semi-transparent — newly flooded
+    rgba[poly_outside_ds]                                 = [  0,   0,   0,   0]  # transparent outside
+
+    # Mask open-water bodies (NLCD water class) so bays/lakes don't render as
+    # flooded land — same approach as get_dem_overlay.
+    if os.path.exists(WATER_MASK_PATH):
+        try:
+            with rasterio.open(WATER_MASK_PATH) as wm:
+                wm_image, _ = rio_mask(
+                    wm, [geom_4269.__geo_interface__], crop=True,
+                    filled=True, nodata=0,
+                )
+            water_ds = wm_image[0][::step_h, ::step_w].astype(bool)
+            rgba[water_ds] = [0, 0, 0, 0]
+        except Exception:
+            pass
 
     img = Image.fromarray(rgba, "RGBA")
     buf = io.BytesIO()
@@ -704,28 +736,15 @@ def get_flood_overlay(geom_wkt: str, sea_level_m: float):
 @st.cache_data(show_spinner="Computing population at risk from raster data…")
 def compute_population_at_risk(geom_wkt: str, year: int, threshold_m: float):
     """
-    Sum population hydrologically connected to the ocean at `threshold_m`
-    (NAVD88) within the geometry, sampling the precomputed hydro-connectivity
-    raster and WorldPop population raster together, pixel by pixel.
+    Sum population connected to the ocean at `threshold_m` (NAVD88), sampling
+    hydro_connect_threshold_m.tif and the WorldPop raster together, pixel by
+    pixel — a pre-aggregated elevation-band table can't say a band is at risk
+    until its whole range is submerged.
 
-    Compares against hydro_connect_threshold_m.tif rather than raw DEM
-    elevation, so population in low-lying but hydrologically isolated
-    depressions (no path to the ocean) isn't counted as at risk — see
-    build_hydro_connectivity.py.
+    Processes in row chunks via windowed reads to keep memory low regardless
+    of area size (statewide would otherwise need ~300MB+ arrays at once).
 
-    A pre-aggregated elevation-band table can only say a band is at risk once its
-    *entire* range is submerged, which undercounts (or reports zero) whenever the
-    threshold falls in the middle of a band. Sampling both rasters directly avoids
-    that assumption.
-
-    Processes the area in horizontal chunks via windowed reads, rather than loading
-    the whole cropped raster into memory at once — a statewide query would otherwise
-    need to hold ~300 MB+ arrays at once, which can exceed Streamlit Cloud's memory
-    limit and crash the app. Chunking keeps peak memory to a few tens of MB
-    regardless of how large the selected area is.
-
-    Returns (pop_at_risk, pop_total), or (None, None) if either raster is
-    unavailable (including a broken/un-uploaded Git LFS pointer stub).
+    Returns (pop_at_risk, pop_total), or (None, None) if a raster is unavailable.
     """
     pop_path = os.path.join(WORLDPOP_DIR, f"pop_{year}_florida.tif")
     if not os.path.exists(HYDRO_CONNECT_PATH) or _is_lfs_pointer_stub(HYDRO_CONNECT_PATH):
@@ -820,6 +839,53 @@ def compute_population_at_risk(geom_wkt: str, year: int, threshold_m: float):
     if pop_total <= 0:
         return None, None
     return pop_at_risk, pop_total
+
+
+@st.cache_data(show_spinner="Loading waste facilities and sampling flood connectivity…")
+def get_waste_facilities_with_threshold():
+    """
+    Load FDEP's statewide Solid Waste Facilities points and attach each one's
+    hydro-connectivity threshold (NAVD88 m, from hydro_connect_threshold_m.tif).
+
+    Sampled once here rather than per sea-level query — a facility's threshold
+    doesn't depend on the scenario, only the comparison against it does.
+    Returns (GeoDataFrame, error) or (None, error_message).
+    """
+    _is_url = WASTE_PATH.startswith("http") if WASTE_PATH else False
+    if not WASTE_PATH or (not _is_url and (not os.path.exists(WASTE_PATH) or _is_lfs_pointer_stub(WASTE_PATH))):
+        return None, "Waste facilities file not found."
+    try:
+        if WASTE_PATH.endswith(".parquet"):
+            import geopandas as _gpd
+            gdf = _gpd.read_parquet(WASTE_PATH) if not _is_url else None
+            if gdf is None:
+                gdf, err = load_infra_layer(WASTE_PATH)
+                if gdf is None:
+                    return None, err
+        else:
+            gdf, err = load_infra_layer(WASTE_PATH)
+            if gdf is None:
+                return None, err
+    except Exception as e:
+        return None, str(e)
+    if gdf is None:
+        return None, err
+
+    gdf = gdf.copy()
+    gdf["CLASS"] = gdf["CLASS"].fillna("(Unspecified)")
+
+    if not os.path.exists(HYDRO_CONNECT_PATH) or _is_lfs_pointer_stub(HYDRO_CONNECT_PATH):
+        gdf["_hydro_threshold_m"] = np.nan
+        return gdf, None
+
+    lons = gdf.geometry.x.tolist()
+    lats = gdf.geometry.y.tolist()
+    try:
+        with rasterio.open(HYDRO_CONNECT_PATH) as src:
+            gdf["_hydro_threshold_m"] = [v[0] for v in src.sample(zip(lons, lats))]
+    except Exception:
+        gdf["_hydro_threshold_m"] = np.nan
+    return gdf, None
 
 
 # ── Continuous colormaps for population overlays ──────────────────────────────
@@ -999,7 +1065,7 @@ def _dem_legend_html(unit_k: str) -> str:
     """Return an HTML colour-strip legend for the DEM overlay (5 classes + water)."""
     if unit_k == "Feet":
         items = [
-            ("#2166ac", "below 0 ft"),
+            ("#08306b", "below 0 ft"),
             ("#4575b4", "0–3 ft"),
             ("#1a9850", "3–7 ft"),
             ("#66bd63", "7–16 ft"),
@@ -1010,7 +1076,7 @@ def _dem_legend_html(unit_k: str) -> str:
         ]
     else:
         items = [
-            ("#2166ac", "below 0 m"),
+            ("#08306b", "below 0 m"),
             ("#4575b4", "0–1 m"),
             ("#1a9850", "1–2 m"),
             ("#66bd63", "2–5 m"),
@@ -1118,7 +1184,7 @@ for _ln_pre in INFRA_LAYERS:
         st.session_state[_k_pre] = _ln_pre in ("Aviation (Airports)",)
 
 # ── Tabs ──────────────────────────────────────────────────────────────────────
-tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs(["Distribution", "Map", "Sea Level Rise", "FEMA Lifeline", "Economic Activity", "Hazards"])
+tab1, tab2, tab3, tab4, tab5, tab6, tab7 = st.tabs(["Distribution", "Map", "Sea Level Rise", "FEMA Lifeline", "Economic Activity", "Hazards", "Waste Facilities"])
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -1908,12 +1974,16 @@ with tab3:
         tide_df = load_tide_datums()
         esl_available = esl_df is not None and tide_df is not None
 
-        _slr_mode_options = ["Manual sea level rise"]
+        tide_available    = tide_df is not None
+        _slr_mode_options = []
+        if tide_available:
+            _slr_mode_options += ["MHHW (Mean Higher High Water)", "MHW (Mean High Water)"]
         if esl_available:
             _slr_mode_options.append("Extreme sea level (tide + storm surge)")
+        _slr_mode_options.append("Custom level (m NAVD88)")
         slr_mode = st.radio("Flood scenario", _slr_mode_options, key="slr_mode")
-        if not esl_available:
-            st.caption("Tide/ESL data not found — only manual sea level rise is available.")
+        if not tide_available:
+            st.caption("Tide data not found — only custom level available.")
 
         # Read unit toggle first (default Feet) so slider range/labels are correct
         slr_use_meters = st.session_state.get("slr_unit_toggle", False)
@@ -1921,15 +1991,17 @@ with tab3:
         slr_band_order = BAND_ORDER_FT if slr_use_feet else BAND_ORDER_M
         slr_unit_label = "elevation above MSL (ft)" if slr_use_feet else "elevation above MSL (m)"
 
-        if slr_mode == "Manual sea level rise":
+        slr_extra_m = 0.0   # additional rise on top of tidal datum (metres)
+
+        if slr_mode == "Custom level (m NAVD88)":
             if slr_use_feet:
-                slr_ft    = st.slider("Sea level rise (ft)", 0.0, 60.0, 1.0, 0.5, key="slr_slider")
+                slr_ft    = st.slider("Flood level (ft NAVD88)", 0.0, 65.0, 3.0, 0.5, key="slr_slider")
                 slr_m     = slr_ft / 3.28084
-                slr_label = f"{slr_ft:.1f} ft"
+                slr_label = f"{slr_ft:.1f} ft NAVD88"
             else:
-                slr_m     = st.slider("Sea level rise (m)", 0.0, 60.0, 0.3, 0.1, key="slr_slider")
-                slr_label = f"{slr_m:.1f} m"
-        else:
+                slr_m     = st.slider("Flood level (m NAVD88)", 0.0, 20.0, 1.0, 0.1, key="slr_slider")
+                slr_label = f"{slr_m:.2f} m NAVD88"
+        elif slr_mode == "Extreme sea level (tide + storm surge)":
             esl_method_label = st.selectbox(
                 "Storm-tide method", list(ESL_METHODS.keys()), index=2, key="esl_method",
             )
@@ -1940,11 +2012,27 @@ with tab3:
                 "Return period (years)", 2, 1000, 100, key="esl_rp",
                 help="How often a storm tide of this height is expected to occur, on average.",
             )
-            slr_m, slr_label = None, None  # resolved below, once the area's center point is known
+            slr_m, slr_label = None, None  # resolved after geometry
+        else:
+            # MHHW or MHW — datum resolved after geometry; extra rise chosen here
+            _datum_short = "MHHW" if "MHHW" in slr_mode else "MHW"
+            if slr_use_feet:
+                _extra_ft   = st.slider(
+                    f"SLR above {_datum_short} (ft)", 0.0, 10.0, 0.0, 0.5,
+                    key="slr_extra_ft",
+                    help=f"Additional sea level rise on top of the {_datum_short} tidal datum.",
+                )
+                slr_extra_m = _extra_ft / 3.28084
+            else:
+                slr_extra_m = st.slider(
+                    f"SLR above {_datum_short} (m)", 0.0, 3.0, 0.0, 0.1,
+                    key="slr_extra_m",
+                    help=f"Additional sea level rise on top of the {_datum_short} tidal datum.",
+                )
+            slr_m, slr_label = None, None
 
-        # Unit toggle — controls the units of the *resulting* water level shown
-        # below (not the return period above, which is always in years)
-        if slr_mode != "Manual sea level rise":
+        # Unit toggle — for tidal datum / ESL modes where the level is computed
+        if slr_mode != "Custom level (m NAVD88)":
             st.caption("Units for the resulting flood level, shown below:")
         u_left, u_mid, u_right = st.columns([2, 1, 2])
         u_left.markdown("<div style='text-align:right;padding-top:6px;font-size:0.9rem;'>Feet</div>", unsafe_allow_html=True)
@@ -1986,44 +2074,73 @@ with tab3:
         else:
             slr_geom_wkt = None
 
-    # ── Resolve extreme-sea-level scenario to a NAVD88 elevation ───────────────
+    # ── Resolve tidal datum / ESL scenario to an absolute NAVD88 elevation ───────
     slr_station_info = None
-    if slr_mode != "Manual sea level rise" and slr_geom_wkt is not None:
+    if slr_m is None and slr_geom_wkt is not None:
         _nearest_station = _nearest_row(tide_df, "Lat", "Lon", slr_center["lat"], slr_center["lon"])
-        _msl_navd88 = float(_nearest_station["MSL"])
+        _msl_navd88      = float(_nearest_station["MSL"])
+        _dist_km         = _haversine_km(slr_center["lat"], slr_center["lon"],
+                                          _nearest_station["Lat"], _nearest_station["Lon"])
 
-        _esl_method = ESL_METHODS[esl_method_label]
-        _esl_stat   = ESL_STATS[esl_stat_label]
-        _esl_col    = f"esl_{_esl_method}_{_esl_stat}"
-        _esl_rows   = esl_df[esl_df["return_period"] == esl_rp]
-        _nearest_site  = _nearest_row(_esl_rows, "lat", "lon", slr_center["lat"], slr_center["lon"])
-        _esl_above_msl = float(_nearest_site[_esl_col])
+        if slr_mode == "MHHW (Mean Higher High Water)":
+            _datum_m  = float(_nearest_station["MHHW"])
+            slr_m     = _datum_m + slr_extra_m
+            slr_ft    = slr_m * 3.28084
+            _extra_ft = slr_extra_m * 3.28084
+            if slr_extra_m > 0:
+                slr_label = (
+                    f"MHHW + {_extra_ft:.1f} ft SLR — {slr_m:.2f} m / {slr_ft:.1f} ft NAVD88"
+                    if slr_use_feet else
+                    f"MHHW + {slr_extra_m:.2f} m SLR — {slr_m:.2f} m / {slr_ft:.1f} ft NAVD88"
+                )
+            else:
+                slr_label = f"MHHW — {slr_m:.2f} m / {slr_ft:.1f} ft NAVD88"
 
-        slr_m     = _esl_above_msl + _msl_navd88
-        slr_ft    = slr_m * 3.28084
-        slr_label = f"{esl_rp}-yr {esl_method_label} ({esl_stat_label}) — {slr_m:.2f} m / {slr_ft:.1f} ft NAVD88"
+        elif slr_mode == "MHW (Mean High Water)":
+            _datum_m  = float(_nearest_station["MHW"])
+            slr_m     = _datum_m + slr_extra_m
+            slr_ft    = slr_m * 3.28084
+            _extra_ft = slr_extra_m * 3.28084
+            if slr_extra_m > 0:
+                slr_label = (
+                    f"MHW + {_extra_ft:.1f} ft SLR — {slr_m:.2f} m / {slr_ft:.1f} ft NAVD88"
+                    if slr_use_feet else
+                    f"MHW + {slr_extra_m:.2f} m SLR — {slr_m:.2f} m / {slr_ft:.1f} ft NAVD88"
+                )
+            else:
+                slr_label = f"MHW — {slr_m:.2f} m / {slr_ft:.1f} ft NAVD88"
+
+        elif slr_mode == "Extreme sea level (tide + storm surge)":
+            _esl_method    = ESL_METHODS[esl_method_label]
+            _esl_stat      = ESL_STATS[esl_stat_label]
+            _esl_col       = f"esl_{_esl_method}_{_esl_stat}"
+            _esl_rows      = esl_df[esl_df["return_period"] == esl_rp]
+            _nearest_site  = _nearest_row(_esl_rows, "lat", "lon", slr_center["lat"], slr_center["lon"])
+            _esl_above_msl = float(_nearest_site[_esl_col])
+            slr_m     = _esl_above_msl + _msl_navd88
+            slr_ft    = slr_m * 3.28084
+            slr_label = f"{esl_rp}-yr {esl_method_label} ({esl_stat_label}) — {slr_m:.2f} m / {slr_ft:.1f} ft NAVD88"
 
         slr_station_info = {
             "name":    _nearest_station["StationName"],
-            "dist_km": _haversine_km(slr_center["lat"], slr_center["lon"],
-                                      _nearest_station["Lat"], _nearest_station["Lon"]),
-            "mhhw":    _nearest_station.get("MHHW"),
-            "msl":     _msl_navd88,
-            "mllw":    _nearest_station.get("MLLW"),
+            "dist_km": _dist_km,
+            "datums":  {
+                k: float(_nearest_station[k])
+                for k in ["MHHW", "MHW", "MTL", "MSL", "DTL", "MLW", "MLLW"]
+                if k in _nearest_station.index and pd.notna(_nearest_station[k])
+            },
         }
     if slr_m is None:
         slr_m, slr_label = 0.0, "0.0 m (no station data available)"
 
-    _scenario_desc = (
-        f"+{slr_label} sea level rise" if slr_mode == "Manual sea level rise" else slr_label
-    )
+    _scenario_desc = slr_label
 
-    if slr_mode != "Manual sea level rise":
+    if slr_mode != "Custom level (m NAVD88)":
         slr_ft = slr_m * 3.28084
         slr_col2.metric(
-            "Resulting flood level",
+            "Flood level (NAVD88)",
             f"{slr_ft:.1f} ft" if slr_use_feet else f"{slr_m:.2f} m",
-            help="Storm-tide height above NAVD88, using the method/estimate/return period selected above.",
+            help="Water level in NAVD88 used for the flood connectivity analysis.",
         )
 
     # ── Flood map ─────────────────────────────────────────────────────────────
@@ -2085,20 +2202,18 @@ with tab3:
             )
 
             if slr_station_info is not None:
-                _datum_bits = [
-                    f"{lbl} {val:.2f} m"
-                    for lbl, val in [
-                        ("MHHW", slr_station_info["mhhw"]),
-                        ("MSL",  slr_station_info["msl"]),
-                        ("MLLW", slr_station_info["mllw"]),
-                    ]
-                    if val is not None and not pd.isna(val)
-                ]
                 st.caption(
                     f"Nearest tide station: **{slr_station_info['name']}** "
-                    f"({slr_station_info['dist_km']:.0f} km away). "
-                    f"Local tidal datums (NAVD88): {', '.join(_datum_bits)}."
+                    f"({slr_station_info['dist_km']:.0f} km away)"
                 )
+                if slr_station_info["datums"]:
+                    _dtm = slr_station_info["datums"]
+                    _datum_df = pd.DataFrame({
+                        "Datum": list(_dtm.keys()),
+                        "m (NAVD88)":  [f"{v:+.3f}" for v in _dtm.values()],
+                        "ft (NAVD88)": [f"{v * 3.28084:+.3f}" for v in _dtm.values()],
+                    })
+                    st.dataframe(_datum_df, use_container_width=True, hide_index=True)
 
     # ── Population at risk — computed pixel-by-pixel from hydro-connectivity + population raster ──
     st.markdown("---")
@@ -2637,6 +2752,40 @@ with tab5:
         # ── Time series chart ─────────────────────────────────────────────────
         st.markdown("---")
 
+        # ── Extreme event marker controls ────────────────────────────────────
+        _hz_df_fin = load_hazards_data()
+        _has_event_dates = (
+            _hz_df_fin is not None
+            and "BEGIN_DATETIME" in _hz_df_fin.columns
+            and _hz_df_fin["BEGIN_DATETIME"].notna().any()
+        )
+        _ev_ctrl1, _ev_ctrl2, _ev_ctrl3 = st.columns([1, 2, 1])
+        show_fin_events = _ev_ctrl1.toggle(
+            "Show extreme events", value=True, key="fin_show_events",
+        )
+        _EXTREME_DEFAULTS = ["Hurricane (Tropical Cyclone)", "Tropical Storm"]
+        _avail_ev_fin = (
+            sorted(_hz_df_fin["EVENT_TYPE"].dropna().unique())
+            if _hz_df_fin is not None else []
+        )
+        _def_ev_fin = [t for t in _EXTREME_DEFAULTS if t in _avail_ev_fin]
+        fin_ev_types = (
+            _ev_ctrl2.multiselect(
+                "Event types to overlay",
+                _avail_ev_fin,
+                default=_def_ev_fin,
+                key="fin_ev_types",
+            )
+            if (show_fin_events and _has_event_dates) else []
+        )
+        fin_ev_min_dmg = (
+            _ev_ctrl3.number_input(
+                "Min. damage ($M)", min_value=0.0, value=0.0, step=1.0,
+                key="fin_ev_min_dmg",
+            )
+            if (show_fin_events and _has_event_dates) else 0.0
+        ) * 1_000_000
+
         if fin_area == "Florida (Statewide)":
             ts_df = fin_df[fin_df["county"] == "Statewide"].copy()
         else:
@@ -2698,6 +2847,76 @@ with tab5:
                 hovermode="closest",
                 margin={"t": 60, "b": 40, "l": 80, "r": 20},
             )
+
+            # ── Add extreme event markers to chart ──────────────────────────
+            _EV_COLORS = {
+                "Hurricane (Tropical Cyclone)": "#c0392b",
+                "Tropical Storm":               "#e74c3c",
+                "Storm Surge/Tide":             "#2980b9",
+                "Coastal Flood":                "#27ae60",
+                "Tornado":                      "#8e44ad",
+                "Flash Flood":                  "#16a085",
+                "Rip Current":                  "#f39c12",
+            }
+            if show_fin_events and _has_event_dates and fin_ev_types:
+                _ev_src = _hz_df_fin[
+                    _hz_df_fin["EVENT_TYPE"].isin(fin_ev_types)
+                    & _hz_df_fin["BEGIN_DATETIME"].notna()
+                    & (_hz_df_fin["ADJ_DAMAGE_PROPERTY"] >= fin_ev_min_dmg)
+                ].copy()
+                # County filter — loose first-word match on CZ_NAME
+                if fin_area != "Florida (Statewide)":
+                    _area_key = fin_area.upper().split()[0].replace("-", "")
+                    _matched = (
+                        _ev_src["CZ_NAME"].fillna("")
+                        .str.upper().str.replace("-", "", regex=False)
+                        .str.replace(" ", "", regex=False)
+                        .str.contains(_area_key, na=False)
+                    )
+                    if _matched.any():
+                        _ev_src = _ev_src[_matched]
+                # Round event dates to month-start for alignment with monthly axis
+                _ev_src["_ev_month"] = (
+                    _ev_src["BEGIN_DATETIME"].dt.to_period("M").dt.to_timestamp()
+                )
+                # Restrict to the visible date range
+                if not ts_agg.empty:
+                    _ev_src = _ev_src[
+                        (_ev_src["_ev_month"] >= ts_agg["date"].min())
+                        & (_ev_src["_ev_month"] <= ts_agg["date"].max())
+                    ]
+                # One marker per (month, EVENT_TYPE) — pick highest-damage record
+                _ev_uniq = (
+                    _ev_src.sort_values("ADJ_DAMAGE_PROPERTY", ascending=False)
+                    .drop_duplicates(subset=["_ev_month", "EVENT_TYPE"])
+                    .sort_values("_ev_month")
+                )
+                for _, _ev_row in _ev_uniq.iterrows():
+                    _ev_color = _EV_COLORS.get(_ev_row["EVENT_TYPE"], "#7f8c8d")
+                    _ev_label = (
+                        _ev_row["EVENT_TYPE"]
+                        .replace(" (Tropical Cyclone)", "")
+                        .replace("Storm Surge/Tide", "Surge")
+                    )
+                    _ev_date_str = _ev_row["_ev_month"].strftime("%b %Y")
+                    fig_ts.add_vline(
+                        x=_ev_row["_ev_month"].strftime("%Y-%m-%d"),
+                        line_width=1.5,
+                        line_dash="dash",
+                        line_color=_ev_color,
+                        annotation=dict(
+                            text=f"{_ev_label}<br>{_ev_date_str}",
+                            textangle=-90,
+                            font=dict(size=8, color=_ev_color),
+                            bgcolor="rgba(255,255,255,0.75)",
+                            bordercolor=_ev_color,
+                            borderwidth=1,
+                            borderpad=3,
+                            xanchor="left",
+                            yanchor="top",
+                        ),
+                    )
+
             st.plotly_chart(fig_ts, use_container_width=True)
 
 
@@ -3045,6 +3264,262 @@ with tab6:
             file_name=f"florida_hazards_{hz_year_range[0]}_{hz_year_range[1]}.csv",
             mime="text/csv",
         )
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# TAB 7 — Waste Facilities (sea level rise exposure)
+# ─────────────────────────────────────────────────────────────────────────────
+_WASTE_DEFAULT_STATUSES = [
+    "Active", "Authorized To Operate", "Registered", "Licensed",
+    "Pre-Authorized", "Exempt From Sw Permitting/Registration",
+    "Under Solid Waste Permit",
+]
+
+with tab7:
+    st.subheader("Solid Waste Facilities — Sea Level Rise Exposure")
+    st.caption(
+        "FDEP-permitted/registered solid waste facilities (landfills, transfer "
+        "stations, recycling/materials-recovery, waste tire, composting, disaster "
+        "debris sites, and more), checked against the same hydro-connectivity "
+        "flood raster used in the Sea Level Rise tab."
+    )
+
+    _waste_gdf, _waste_err = get_waste_facilities_with_threshold()
+
+    if _waste_gdf is None:
+        st.warning(f"Waste facilities data not available: {_waste_err}")
+    else:
+        waste_map_col, waste_ctrl_col = st.columns([3, 1])
+
+        with waste_ctrl_col:
+            waste_counties = ["Florida (Statewide)"] + sorted(
+                _waste_gdf["COUNTY"].dropna().unique().tolist()
+            )
+            waste_area = st.selectbox("County / Statewide", waste_counties, key="waste_area")
+
+            esl_df  = load_esl_data()
+            tide_df = load_tide_datums()
+            esl_available = esl_df is not None and tide_df is not None
+
+            _waste_tide_available = tide_df is not None
+            _waste_mode_options   = []
+            if _waste_tide_available:
+                _waste_mode_options += ["MHHW (Mean Higher High Water)", "MHW (Mean High Water)"]
+            if esl_available:
+                _waste_mode_options.append("Extreme sea level (tide + storm surge)")
+            _waste_mode_options.append("Custom level (m NAVD88)")
+            waste_mode = st.radio("Flood scenario", _waste_mode_options, key="waste_mode")
+            if not _waste_tide_available:
+                st.caption("Tide data not found — only custom level available.")
+
+            waste_use_feet = st.toggle("Feet (off = meters)", value=True, key="waste_unit_toggle")
+
+            waste_extra_m = 0.0   # additional rise on top of tidal datum (metres)
+
+            if waste_mode == "Custom level (m NAVD88)":
+                if waste_use_feet:
+                    waste_slr_ft = st.slider("Flood level (ft NAVD88)", 0.0, 65.0, 3.0, 0.5, key="waste_slr_ft")
+                    waste_slr_m  = waste_slr_ft / 3.28084
+                else:
+                    waste_slr_m = st.slider("Flood level (m NAVD88)", 0.0, 20.0, 1.0, 0.1, key="waste_slr_m")
+                waste_slr_label = f"{waste_slr_m * 3.28084:.1f} ft / {waste_slr_m:.2f} m NAVD88"
+            else:
+                if waste_mode == "Extreme sea level (tide + storm surge)":
+                    waste_esl_method_label = st.selectbox(
+                        "Storm-tide method", list(ESL_METHODS.keys()), index=2, key="waste_esl_method",
+                    )
+                    waste_esl_stat_label = st.selectbox(
+                        "Estimate", list(ESL_STATS.keys()), index=0, key="waste_esl_stat",
+                    )
+                    waste_esl_rp = st.slider(
+                        "Return period (years)", 2, 1000, 100, key="waste_esl_rp",
+                        help="How often a storm tide of this height is expected to occur, on average.",
+                    )
+                else:
+                    # MHHW or MHW — extra rise slider
+                    _w_datum_short = "MHHW" if "MHHW" in waste_mode else "MHW"
+                    if waste_use_feet:
+                        _w_extra_ft   = st.slider(
+                            f"SLR above {_w_datum_short} (ft)", 0.0, 10.0, 0.0, 0.5,
+                            key="waste_extra_ft",
+                            help=f"Additional sea level rise on top of the {_w_datum_short} tidal datum.",
+                        )
+                        waste_extra_m = _w_extra_ft / 3.28084
+                    else:
+                        waste_extra_m = st.slider(
+                            f"SLR above {_w_datum_short} (m)", 0.0, 3.0, 0.0, 0.1,
+                            key="waste_extra_m",
+                            help=f"Additional sea level rise on top of the {_w_datum_short} tidal datum.",
+                        )
+                waste_slr_m, waste_slr_label = None, None  # resolved after area centroid is known
+
+            st.markdown("---")
+            _status_options = sorted(_waste_gdf["FACILITY_STATUS"].dropna().unique().tolist())
+            waste_status_filter = st.multiselect(
+                "Facility status", options=_status_options,
+                default=[s for s in _WASTE_DEFAULT_STATUSES if s in _status_options],
+                key="waste_status",
+                help="Defaults to statuses that represent a currently-permitted/operating "
+                     "facility — add back closed/complaint/proposed statuses if needed.",
+            )
+            _class_options = sorted(_waste_gdf["CLASS"].dropna().unique().tolist())
+            waste_class_filter = st.multiselect(
+                "Facility class", options=_class_options, default=_class_options, key="waste_class",
+            )
+
+        # ── Resolve area centroid — used for the ESL tide-station lookup and, when
+        # a county is selected, for centering the map ──────────────────────────────
+        if waste_area == "Florida (Statewide)":
+            _waste_center = {"lat": 27.8, "lon": -81.5}
+        else:
+            _wgid = df_all[
+                (df_all["Scope"] == "County") & (df_all["County_Name"] == waste_area)
+            ]["County_GEOID"]
+            _wgid = _wgid.iloc[0] if not _wgid.empty else None
+            _wfeat = [f for f in fl_geojson["features"]
+                      if f["properties"]["GEOID10"] == _wgid] if (_wgid and fl_geojson) else []
+            if _wfeat:
+                _wgeom = shape(_wfeat[0]["geometry"])
+                _waste_center = {"lat": _wgeom.centroid.y, "lon": _wgeom.centroid.x}
+            else:
+                _waste_center = {"lat": 27.8, "lon": -81.5}
+
+        waste_station_info = None
+        if waste_slr_m is None:
+            _nearest_station = _nearest_row(tide_df, "Lat", "Lon", _waste_center["lat"], _waste_center["lon"])
+            _msl_navd88  = float(_nearest_station["MSL"])
+            _waste_dist  = _haversine_km(_waste_center["lat"], _waste_center["lon"],
+                                          _nearest_station["Lat"], _nearest_station["Lon"])
+
+            if waste_mode == "MHHW (Mean Higher High Water)":
+                _w_datum_m  = float(_nearest_station["MHHW"])
+                waste_slr_m = _w_datum_m + waste_extra_m
+                _w_extra_ft = waste_extra_m * 3.28084
+                if waste_extra_m > 0:
+                    waste_slr_label = (
+                        f"MHHW + {_w_extra_ft:.1f} ft SLR — {waste_slr_m:.2f} m / {waste_slr_m * 3.28084:.1f} ft NAVD88"
+                        if waste_use_feet else
+                        f"MHHW + {waste_extra_m:.2f} m SLR — {waste_slr_m:.2f} m / {waste_slr_m * 3.28084:.1f} ft NAVD88"
+                    )
+                else:
+                    waste_slr_label = f"MHHW — {waste_slr_m:.2f} m / {waste_slr_m * 3.28084:.1f} ft NAVD88"
+            elif waste_mode == "MHW (Mean High Water)":
+                _w_datum_m  = float(_nearest_station["MHW"])
+                waste_slr_m = _w_datum_m + waste_extra_m
+                _w_extra_ft = waste_extra_m * 3.28084
+                if waste_extra_m > 0:
+                    waste_slr_label = (
+                        f"MHW + {_w_extra_ft:.1f} ft SLR — {waste_slr_m:.2f} m / {waste_slr_m * 3.28084:.1f} ft NAVD88"
+                        if waste_use_feet else
+                        f"MHW + {waste_extra_m:.2f} m SLR — {waste_slr_m:.2f} m / {waste_slr_m * 3.28084:.1f} ft NAVD88"
+                    )
+                else:
+                    waste_slr_label = f"MHW — {waste_slr_m:.2f} m / {waste_slr_m * 3.28084:.1f} ft NAVD88"
+            elif waste_mode == "Extreme sea level (tide + storm surge)":
+                _esl_method    = ESL_METHODS[waste_esl_method_label]
+                _esl_stat      = ESL_STATS[waste_esl_stat_label]
+                _esl_col       = f"esl_{_esl_method}_{_esl_stat}"
+                _esl_rows      = esl_df[esl_df["return_period"] == waste_esl_rp]
+                _nearest_site  = _nearest_row(_esl_rows, "lat", "lon", _waste_center["lat"], _waste_center["lon"])
+                _esl_above_msl = float(_nearest_site[_esl_col])
+                waste_slr_m    = _esl_above_msl + _msl_navd88
+                waste_slr_label = (
+                    f"{waste_esl_rp}-yr {waste_esl_method_label} ({waste_esl_stat_label}) — "
+                    f"{waste_slr_m:.2f} m / {waste_slr_m * 3.28084:.1f} ft NAVD88"
+                )
+            waste_station_info = {
+                "name":    _nearest_station["StationName"],
+                "dist_km": _waste_dist,
+            }
+        if waste_slr_m is None:
+            waste_slr_m, waste_slr_label = 0.0, "0.0 m (no station data available)"
+
+        with waste_map_col:
+            _wdf = _waste_gdf
+            if waste_area != "Florida (Statewide)":
+                _wdf = _wdf[_wdf["COUNTY"] == waste_area]
+            if waste_status_filter:
+                _wdf = _wdf[_wdf["FACILITY_STATUS"].isin(waste_status_filter)]
+            if waste_class_filter:
+                _wdf = _wdf[_wdf["CLASS"].isin(waste_class_filter)]
+
+            if _wdf.empty:
+                st.info("No facilities match the current filters.")
+            else:
+                _at_risk = _wdf["_hydro_threshold_m"].notna() & (_wdf["_hydro_threshold_m"] <= waste_slr_m)
+
+                fig_waste = go.Figure()
+                for _bl, _bla in state_rings:
+                    fig_waste.add_trace(ScatterMapTrace(
+                        lon=_bl, lat=_bla, mode="lines",
+                        line=dict(color="black", width=1),
+                        hoverinfo="skip", showlegend=False,
+                    ))
+
+                _hover = [
+                    f"<b>{n}</b><br>{c}<br>Status: {s}<br>County: {co}"
+                    for n, c, s, co in zip(
+                        _wdf["FACILITY_NAME"].fillna("—"), _wdf["CLASS"],
+                        _wdf["FACILITY_STATUS"].fillna("—"), _wdf["COUNTY"].fillna("—"),
+                    )
+                ]
+                fig_waste.add_trace(ScatterMapTrace(
+                    lon=_wdf.geometry.x[~_at_risk].tolist(),
+                    lat=_wdf.geometry.y[~_at_risk].tolist(),
+                    mode="markers", marker=dict(size=7, color="#4575b4", opacity=0.75),
+                    text=[t for t, r in zip(_hover, _at_risk) if not r],
+                    hovertemplate="%{text}<extra></extra>",
+                    name="Not at risk", showlegend=True,
+                ))
+                fig_waste.add_trace(ScatterMapTrace(
+                    lon=_wdf.geometry.x[_at_risk].tolist(),
+                    lat=_wdf.geometry.y[_at_risk].tolist(),
+                    mode="markers", marker=dict(size=9, color="#d62728", opacity=0.9),
+                    text=[t for t, r in zip(_hover, _at_risk) if r],
+                    hovertemplate="%{text}<extra></extra>",
+                    name=f"At risk at {waste_slr_label}", showlegend=True,
+                ))
+
+                if waste_area == "Florida (Statewide)":
+                    _wc, _wz = {"lat": 27.8, "lon": -81.5}, 5.5
+                else:
+                    _wc = {"lat": float(_wdf.geometry.y.mean()), "lon": float(_wdf.geometry.x.mean())}
+                    _wz = 8.5
+
+                fig_waste.update_layout(
+                    **_map_layout(style="open-street-map", zoom=_wz, center=_wc),
+                    height=680,
+                    margin={"r": 0, "t": 10, "l": 0, "b": 0},
+                    legend=dict(yanchor="top", y=0.98, xanchor="left", x=0.01,
+                                bgcolor="rgba(255,255,255,0.82)", font=dict(size=12)),
+                    uirevision=f"waste_{waste_area}",
+                )
+                st.plotly_chart(fig_waste, use_container_width=True, config={"scrollZoom": True})
+
+                _n_total, _n_risk = len(_wdf), int(_at_risk.sum())
+                m1, m2, m3 = st.columns(3)
+                m1.metric("Facilities shown", f"{_n_total:,}")
+                m2.metric(f"At risk at {waste_slr_label}", f"{_n_risk:,}")
+                m3.metric("% at risk", f"{100 * _n_risk / _n_total:.1f}%" if _n_total else "—")
+
+                st.markdown(f"**At-risk facilities at {waste_slr_label} sea level rise**")
+                _risk_table = (
+                    _wdf[_at_risk][["FACILITY_NAME", "CLASS", "FACILITY_STATUS", "COUNTY",
+                                     "ADDRESS", "OWNERSHIP", "_hydro_threshold_m"]]
+                    .rename(columns={
+                        "FACILITY_NAME": "Name", "CLASS": "Class", "FACILITY_STATUS": "Status",
+                        "COUNTY": "County", "ADDRESS": "Address", "OWNERSHIP": "Ownership",
+                        "_hydro_threshold_m": "Connects at (m NAVD88)",
+                    })
+                    .sort_values("Connects at (m NAVD88)")
+                )
+                st.dataframe(_risk_table, use_container_width=True, hide_index=True)
+                st.download_button(
+                    label="Download at-risk facilities (CSV)",
+                    data=_risk_table.to_csv(index=False).encode("utf-8"),
+                    file_name=f"waste_facilities_at_risk_{waste_slr_label.replace(' ', '')}.csv",
+                    mime="text/csv",
+                )
 
 
 # ── Footer ────────────────────────────────────────────────────────────────────
