@@ -657,12 +657,13 @@ def get_dem_overlay(geom_wkt: str, unit_k: str):
 
 
 @st.cache_data(show_spinner="Computing flood overlay …")
-def get_flood_overlay(geom_wkt: str, sea_level_m: float):
+def get_flood_overlay(geom_wkt: str, sea_level_m: float, baseline_m: float = 0.0):
     """
-    Color pixels connected to the ocean at sea_level_m as flooded (red);
-    already connected today → blue. Uses hydro_connect_threshold_m.tif
-    (build_hydro_connectivity.py) so isolated depressions aren't flagged.
-    Returns (data_uri_png, [west, south, east, north]) or (None, None).
+    Color pixels that become newly connected to the ocean between baseline_m and
+    sea_level_m as flooded (red). baseline_m = tidal datum for datum modes (so
+    red only appears when extra SLR is added above the datum); 0.0 for custom /
+    ESL modes. Uses hydro_connect_threshold_m.tif so isolated depressions aren't
+    flagged. Returns (data_uri_png, [west, south, east, north]) or (None, None).
     """
     if not os.path.exists(HYDRO_CONNECT_PATH):
         return None, None
@@ -708,8 +709,8 @@ def get_flood_overlay(geom_wkt: str, sea_level_m: float):
     valid           = ~np.isnan(thr_ds) & ~poly_outside_ds
 
     rgba = np.zeros((thr_ds.shape[0], thr_ds.shape[1], 4), dtype=np.uint8)
-    if sea_level_m > 0:
-        rgba[valid & (thr_ds > 0) & (thr_ds <= sea_level_m)] = [220, 0, 0, 160]  # red — newly flooded
+    if sea_level_m > baseline_m:
+        rgba[valid & (thr_ds > baseline_m) & (thr_ds <= sea_level_m)] = [220, 0, 0, 160]  # red — newly flooded
     rgba[poly_outside_ds] = [0, 0, 0, 0]  # transparent outside
 
     # Mask open-water bodies (NLCD water class) so bays/lakes don't render as
@@ -2095,6 +2096,7 @@ with tab3:
     # ── Resolve tidal datum / ESL scenario to an absolute NAVD88 elevation ───────
     slr_station_info = None
     _datum_zero_warning = None  # set to datum name string when station reports 0/missing datum
+    _slr_baseline_m = 0.0       # lower bound for red pixels; set to datum for tidal modes
     if slr_m is None and slr_geom_wkt is not None:
         _nearest_station = _nearest_row(tide_df, "Lat", "Lon", slr_center["lat"], slr_center["lon"])
         _msl_navd88      = float(_nearest_station["MSL"])
@@ -2108,6 +2110,7 @@ with tab3:
                 slr_label = "MHHW datum is 0 / missing — no flood overlay"
                 _datum_zero_warning = "MHHW"
             else:
+                _slr_baseline_m = _datum_m   # red starts above the datum, not above 0
                 slr_m     = _datum_m + slr_extra_m
                 slr_ft    = slr_m * 3.28084
                 _extra_ft = slr_extra_m * 3.28084
@@ -2127,6 +2130,7 @@ with tab3:
                 slr_label = "MHW datum is 0 / missing — no flood overlay"
                 _datum_zero_warning = "MHW"
             else:
+                _slr_baseline_m = _datum_m   # red starts above the datum, not above 0
                 slr_m     = _datum_m + slr_extra_m
                 slr_ft    = slr_m * 3.28084
                 _extra_ft = slr_extra_m * 3.28084
@@ -2146,6 +2150,7 @@ with tab3:
                 slr_label = "MSL datum is 0 / missing — no flood overlay"
                 _datum_zero_warning = "MSL"
             else:
+                _slr_baseline_m = _datum_m   # red starts above the datum, not above 0
                 slr_m     = _datum_m + slr_extra_m
                 slr_ft    = slr_m * 3.28084
                 _extra_ft = slr_extra_m * 3.28084
@@ -2203,7 +2208,7 @@ with tab3:
                     f"(datum likely missing from station record). "
                     f"Red flood coloring is suppressed — only areas already below sea level are shown in blue."
                 )
-            flood_img, flood_bounds = get_flood_overlay(slr_geom_wkt, slr_m)
+            flood_img, flood_bounds = get_flood_overlay(slr_geom_wkt, slr_m, _slr_baseline_m)
 
             fig_slr = go.Figure()
             # Dummy trace — forces Plotly to render as mapbox instead of cartesian
