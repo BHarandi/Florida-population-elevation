@@ -708,9 +708,9 @@ def get_flood_overlay(geom_wkt: str, sea_level_m: float):
     valid           = ~np.isnan(thr_ds) & ~poly_outside_ds
 
     rgba = np.zeros((thr_ds.shape[0], thr_ds.shape[1], 4), dtype=np.uint8)
-    rgba[valid & (thr_ds <= 0)]                           = [ 30, 100, 210, 200]  # blue — already connected at present MSL
-    rgba[valid & (thr_ds > 0) & (thr_ds <= sea_level_m)] = [220,   0,   0, 160]  # vivid red semi-transparent — newly flooded
-    rgba[poly_outside_ds]                                 = [  0,   0,   0,   0]  # transparent outside
+    if sea_level_m > 0:
+        rgba[valid & (thr_ds > 0) & (thr_ds <= sea_level_m)] = [220, 0, 0, 160]  # red — newly flooded
+    rgba[poly_outside_ds] = [0, 0, 0, 0]  # transparent outside
 
     # Mask open-water bodies (NLCD water class) so bays/lakes don't render as
     # flooded land — same approach as get_dem_overlay.
@@ -2094,6 +2094,7 @@ with tab3:
 
     # ── Resolve tidal datum / ESL scenario to an absolute NAVD88 elevation ───────
     slr_station_info = None
+    _datum_zero_warning = None  # set to datum name string when station reports 0/missing datum
     if slr_m is None and slr_geom_wkt is not None:
         _nearest_station = _nearest_row(tide_df, "Lat", "Lon", slr_center["lat"], slr_center["lon"])
         _msl_navd88      = float(_nearest_station["MSL"])
@@ -2101,46 +2102,61 @@ with tab3:
                                           _nearest_station["Lat"], _nearest_station["Lon"])
 
         if slr_mode == "MHHW (Mean Higher High Water)":
-            _datum_m  = float(_nearest_station["MHHW"])
-            slr_m     = _datum_m + slr_extra_m
-            slr_ft    = slr_m * 3.28084
-            _extra_ft = slr_extra_m * 3.28084
-            if slr_extra_m > 0:
-                slr_label = (
-                    f"MHHW + {_extra_ft:.1f} ft SLR — {slr_m:.2f} m / {slr_ft:.1f} ft NAVD88"
-                    if slr_use_feet else
-                    f"MHHW + {slr_extra_m:.2f} m SLR — {slr_m:.2f} m / {slr_ft:.1f} ft NAVD88"
-                )
+            _datum_m = float(_nearest_station["MHHW"])
+            if not np.isfinite(_datum_m) or _datum_m == 0.0:
+                slr_m = 0.0
+                slr_label = "MHHW datum is 0 / missing — no flood overlay"
+                _datum_zero_warning = "MHHW"
             else:
-                slr_label = f"MHHW — {slr_m:.2f} m / {slr_ft:.1f} ft NAVD88"
+                slr_m     = _datum_m + slr_extra_m
+                slr_ft    = slr_m * 3.28084
+                _extra_ft = slr_extra_m * 3.28084
+                if slr_extra_m > 0:
+                    slr_label = (
+                        f"MHHW + {_extra_ft:.1f} ft SLR — {slr_m:.2f} m / {slr_ft:.1f} ft NAVD88"
+                        if slr_use_feet else
+                        f"MHHW + {slr_extra_m:.2f} m SLR — {slr_m:.2f} m / {slr_ft:.1f} ft NAVD88"
+                    )
+                else:
+                    slr_label = f"MHHW — {slr_m:.2f} m / {slr_ft:.1f} ft NAVD88"
 
         elif slr_mode == "MHW (Mean High Water)":
-            _datum_m  = float(_nearest_station["MHW"])
-            slr_m     = _datum_m + slr_extra_m
-            slr_ft    = slr_m * 3.28084
-            _extra_ft = slr_extra_m * 3.28084
-            if slr_extra_m > 0:
-                slr_label = (
-                    f"MHW + {_extra_ft:.1f} ft SLR — {slr_m:.2f} m / {slr_ft:.1f} ft NAVD88"
-                    if slr_use_feet else
-                    f"MHW + {slr_extra_m:.2f} m SLR — {slr_m:.2f} m / {slr_ft:.1f} ft NAVD88"
-                )
+            _datum_m = float(_nearest_station["MHW"])
+            if not np.isfinite(_datum_m) or _datum_m == 0.0:
+                slr_m = 0.0
+                slr_label = "MHW datum is 0 / missing — no flood overlay"
+                _datum_zero_warning = "MHW"
             else:
-                slr_label = f"MHW — {slr_m:.2f} m / {slr_ft:.1f} ft NAVD88"
+                slr_m     = _datum_m + slr_extra_m
+                slr_ft    = slr_m * 3.28084
+                _extra_ft = slr_extra_m * 3.28084
+                if slr_extra_m > 0:
+                    slr_label = (
+                        f"MHW + {_extra_ft:.1f} ft SLR — {slr_m:.2f} m / {slr_ft:.1f} ft NAVD88"
+                        if slr_use_feet else
+                        f"MHW + {slr_extra_m:.2f} m SLR — {slr_m:.2f} m / {slr_ft:.1f} ft NAVD88"
+                    )
+                else:
+                    slr_label = f"MHW — {slr_m:.2f} m / {slr_ft:.1f} ft NAVD88"
 
         elif slr_mode == "MSL (Mean Sea Level)":
-            _datum_m  = float(_nearest_station["MSL"])
-            slr_m     = _datum_m + slr_extra_m
-            slr_ft    = slr_m * 3.28084
-            _extra_ft = slr_extra_m * 3.28084
-            if slr_extra_m > 0:
-                slr_label = (
-                    f"MSL + {_extra_ft:.1f} ft SLR — {slr_m:.2f} m / {slr_ft:.1f} ft NAVD88"
-                    if slr_use_feet else
-                    f"MSL + {slr_extra_m:.2f} m SLR — {slr_m:.2f} m / {slr_ft:.1f} ft NAVD88"
-                )
+            _datum_m = float(_nearest_station["MSL"])
+            if not np.isfinite(_datum_m) or _datum_m == 0.0:
+                slr_m = 0.0
+                slr_label = "MSL datum is 0 / missing — no flood overlay"
+                _datum_zero_warning = "MSL"
             else:
-                slr_label = f"MSL — {slr_m:.2f} m / {slr_ft:.1f} ft NAVD88"
+                slr_m     = _datum_m + slr_extra_m
+                slr_ft    = slr_m * 3.28084
+                _extra_ft = slr_extra_m * 3.28084
+                if slr_extra_m > 0:
+                    slr_label = (
+                        f"MSL + {_extra_ft:.1f} ft SLR — {slr_m:.2f} m / {slr_ft:.1f} ft NAVD88"
+                        if slr_use_feet else
+                        f"MSL + {slr_extra_m:.2f} m SLR — {slr_m:.2f} m / {slr_ft:.1f} ft NAVD88"
+                    )
+                else:
+                    slr_label = f"MSL — {slr_m:.2f} m / {slr_ft:.1f} ft NAVD88"
 
         elif slr_mode == "Extreme sea level (tide + storm surge)":
             _esl_method    = ESL_METHODS[esl_method_label]
@@ -2164,6 +2180,7 @@ with tab3:
         }
     if slr_m is None:
         slr_m, slr_label = 0.0, "0.0 m (no station data available)"
+        _datum_zero_warning = None
 
     _scenario_desc = slr_label
 
@@ -2180,6 +2197,12 @@ with tab3:
         if slr_geom_wkt is None:
             st.warning("Could not load geometry for selected area.")
         else:
+            if _datum_zero_warning:
+                st.warning(
+                    f"The nearest tide station reports **{_datum_zero_warning} = 0 m** "
+                    f"(datum likely missing from station record). "
+                    f"Red flood coloring is suppressed — only areas already below sea level are shown in blue."
+                )
             flood_img, flood_bounds = get_flood_overlay(slr_geom_wkt, slr_m)
 
             fig_slr = go.Figure()
@@ -2226,10 +2249,7 @@ with tab3:
             st.markdown(
                 '<span style="display:inline-block;width:14px;height:14px;background:#DC0000;'
                 'border-radius:2px;margin-right:4px;vertical-align:middle;"></span>'
-                f'<small>Flooded at {_scenario_desc}</small>&nbsp;&nbsp;&nbsp;'
-                '<span style="display:inline-block;width:14px;height:14px;background:#2166ac;'
-                'border-radius:2px;margin-right:4px;vertical-align:middle;"></span>'
-                '<small>Already below sea level</small>',
+                f'<small>Flooded at {_scenario_desc}</small>',
                 unsafe_allow_html=True,
             )
 
