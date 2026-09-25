@@ -3442,6 +3442,8 @@ with tab7:
                 _waste_center = {"lat": 27.8, "lon": -81.5}
 
         waste_station_info = None
+        _waste_baseline_m = 0.0   # lower bound for "at risk"; set to datum for tidal modes
+        _waste_datum_zero_warning = None
         if waste_slr_m is None:
             _nearest_station = _nearest_row(tide_df, "Lat", "Lon", _waste_center["lat"], _waste_center["lon"])
             _msl_navd88  = float(_nearest_station["MSL"])
@@ -3449,41 +3451,59 @@ with tab7:
                                           _nearest_station["Lat"], _nearest_station["Lon"])
 
             if waste_mode == "MHHW (Mean Higher High Water)":
-                _w_datum_m  = float(_nearest_station["MHHW"])
-                waste_slr_m = _w_datum_m + waste_extra_m
-                _w_extra_ft = waste_extra_m * 3.28084
-                if waste_extra_m > 0:
-                    waste_slr_label = (
-                        f"MHHW + {_w_extra_ft:.1f} ft SLR — {waste_slr_m:.2f} m / {waste_slr_m * 3.28084:.1f} ft NAVD88"
-                        if waste_use_feet else
-                        f"MHHW + {waste_extra_m:.2f} m SLR — {waste_slr_m:.2f} m / {waste_slr_m * 3.28084:.1f} ft NAVD88"
-                    )
+                _w_datum_m = float(_nearest_station["MHHW"])
+                if not np.isfinite(_w_datum_m) or _w_datum_m == 0.0:
+                    waste_slr_m = 0.0
+                    waste_slr_label = "MHHW datum is 0 / missing — no risk overlay"
+                    _waste_datum_zero_warning = "MHHW"
                 else:
-                    waste_slr_label = f"MHHW — {waste_slr_m:.2f} m / {waste_slr_m * 3.28084:.1f} ft NAVD88"
+                    _waste_baseline_m = _w_datum_m
+                    waste_slr_m = _w_datum_m + waste_extra_m
+                    _w_extra_ft = waste_extra_m * 3.28084
+                    if waste_extra_m > 0:
+                        waste_slr_label = (
+                            f"MHHW + {_w_extra_ft:.1f} ft SLR — {waste_slr_m:.2f} m / {waste_slr_m * 3.28084:.1f} ft NAVD88"
+                            if waste_use_feet else
+                            f"MHHW + {waste_extra_m:.2f} m SLR — {waste_slr_m:.2f} m / {waste_slr_m * 3.28084:.1f} ft NAVD88"
+                        )
+                    else:
+                        waste_slr_label = f"MHHW — {waste_slr_m:.2f} m / {waste_slr_m * 3.28084:.1f} ft NAVD88"
             elif waste_mode == "MHW (Mean High Water)":
-                _w_datum_m  = float(_nearest_station["MHW"])
-                waste_slr_m = _w_datum_m + waste_extra_m
-                _w_extra_ft = waste_extra_m * 3.28084
-                if waste_extra_m > 0:
-                    waste_slr_label = (
-                        f"MHW + {_w_extra_ft:.1f} ft SLR — {waste_slr_m:.2f} m / {waste_slr_m * 3.28084:.1f} ft NAVD88"
-                        if waste_use_feet else
-                        f"MHW + {waste_extra_m:.2f} m SLR — {waste_slr_m:.2f} m / {waste_slr_m * 3.28084:.1f} ft NAVD88"
-                    )
+                _w_datum_m = float(_nearest_station["MHW"])
+                if not np.isfinite(_w_datum_m) or _w_datum_m == 0.0:
+                    waste_slr_m = 0.0
+                    waste_slr_label = "MHW datum is 0 / missing — no risk overlay"
+                    _waste_datum_zero_warning = "MHW"
                 else:
-                    waste_slr_label = f"MHW — {waste_slr_m:.2f} m / {waste_slr_m * 3.28084:.1f} ft NAVD88"
+                    _waste_baseline_m = _w_datum_m
+                    waste_slr_m = _w_datum_m + waste_extra_m
+                    _w_extra_ft = waste_extra_m * 3.28084
+                    if waste_extra_m > 0:
+                        waste_slr_label = (
+                            f"MHW + {_w_extra_ft:.1f} ft SLR — {waste_slr_m:.2f} m / {waste_slr_m * 3.28084:.1f} ft NAVD88"
+                            if waste_use_feet else
+                            f"MHW + {waste_extra_m:.2f} m SLR — {waste_slr_m:.2f} m / {waste_slr_m * 3.28084:.1f} ft NAVD88"
+                        )
+                    else:
+                        waste_slr_label = f"MHW — {waste_slr_m:.2f} m / {waste_slr_m * 3.28084:.1f} ft NAVD88"
             elif waste_mode == "MSL (Mean Sea Level)":
-                _w_datum_m  = float(_nearest_station["MSL"])
-                waste_slr_m = _w_datum_m + waste_extra_m
-                _w_extra_ft = waste_extra_m * 3.28084
-                if waste_extra_m > 0:
-                    waste_slr_label = (
-                        f"MSL + {_w_extra_ft:.1f} ft SLR — {waste_slr_m:.2f} m / {waste_slr_m * 3.28084:.1f} ft NAVD88"
-                        if waste_use_feet else
-                        f"MSL + {waste_extra_m:.2f} m SLR — {waste_slr_m:.2f} m / {waste_slr_m * 3.28084:.1f} ft NAVD88"
-                    )
+                _w_datum_m = float(_nearest_station["MSL"])
+                if not np.isfinite(_w_datum_m) or _w_datum_m == 0.0:
+                    waste_slr_m = 0.0
+                    waste_slr_label = "MSL datum is 0 / missing — no risk overlay"
+                    _waste_datum_zero_warning = "MSL"
                 else:
-                    waste_slr_label = f"MSL — {waste_slr_m:.2f} m / {waste_slr_m * 3.28084:.1f} ft NAVD88"
+                    _waste_baseline_m = _w_datum_m
+                    waste_slr_m = _w_datum_m + waste_extra_m
+                    _w_extra_ft = waste_extra_m * 3.28084
+                    if waste_extra_m > 0:
+                        waste_slr_label = (
+                            f"MSL + {_w_extra_ft:.1f} ft SLR — {waste_slr_m:.2f} m / {waste_slr_m * 3.28084:.1f} ft NAVD88"
+                            if waste_use_feet else
+                            f"MSL + {waste_extra_m:.2f} m SLR — {waste_slr_m:.2f} m / {waste_slr_m * 3.28084:.1f} ft NAVD88"
+                        )
+                    else:
+                        waste_slr_label = f"MSL — {waste_slr_m:.2f} m / {waste_slr_m * 3.28084:.1f} ft NAVD88"
             elif waste_mode == "Extreme sea level (tide + storm surge)":
                 _esl_method    = ESL_METHODS[waste_esl_method_label]
                 _esl_stat      = ESL_STATS[waste_esl_stat_label]
@@ -3512,10 +3532,19 @@ with tab7:
             if waste_class_filter:
                 _wdf = _wdf[_wdf["CLASS"].isin(waste_class_filter)]
 
+            if _waste_datum_zero_warning:
+                st.warning(
+                    f"The nearest tide station reports **{_waste_datum_zero_warning} = 0 m** "
+                    f"(datum likely missing). No facilities are marked at risk."
+                )
             if _wdf.empty:
                 st.info("No facilities match the current filters.")
             else:
-                _at_risk = _wdf["_hydro_threshold_m"].notna() & (_wdf["_hydro_threshold_m"] <= waste_slr_m)
+                _at_risk = (
+                    _wdf["_hydro_threshold_m"].notna() &
+                    (_wdf["_hydro_threshold_m"] > _waste_baseline_m) &
+                    (_wdf["_hydro_threshold_m"] <= waste_slr_m)
+                )
 
                 fig_waste = go.Figure()
                 for _bl, _bla in state_rings:
