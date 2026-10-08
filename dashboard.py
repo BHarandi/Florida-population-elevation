@@ -3985,12 +3985,12 @@ with tab8:
                                 lat=rlat.tolist(),
                                 mode="markers",
                                 marker=dict(
-                                    size=14,
+                                    size=6,
                                     color=rval.tolist(),
                                     colorscale=color_scale,
                                     showscale=True,
                                     colorbar=dict(title=color_label, thickness=14, len=0.7),
-                                    opacity=0.80,
+                                    opacity=0.90,
                                 ),
                                 hoverinfo="skip",
                                 name="Raster",
@@ -4057,8 +4057,17 @@ with tab8:
             with detail_col:
                 st.markdown("**Station detail**")
                 station_names = sorted(rf_sel["station_name"].unique())
+                # Default to station nearest Florida's geographic centre (28.1°N, -81.6°W)
+                _cx, _cy = -81.6, 28.1
+                _default_stn = (
+                    rf_sel.assign(
+                        _d=((rf_sel["lon"] - _cx)**2 + (rf_sel["lat"] - _cy)**2)
+                    )
+                    .sort_values("_d")["station_name"].iloc[0]
+                )
+                _default_idx = station_names.index(_default_stn) if _default_stn in station_names else 0
                 selected_station = st.selectbox(
-                    "Select station", station_names, key="rf_station"
+                    "Select station", station_names, index=_default_idx, key="rf_station"
                 )
 
                 # Pull all horizons + SSPs for this station / duration / return period
