@@ -3806,10 +3806,16 @@ with tab8:
     rf_df = load_rainfall_data()
 
     if rf_df is None:
+        _path_info = RAINFALL_PATH or "None"
+        _exists = (
+            bool(RAINFALL_PATH)
+            and not RAINFALL_PATH.startswith("http")
+            and os.path.exists(RAINFALL_PATH)
+        )
         st.warning(
-            "Future rainfall file not found. "
-            "Run **`download_atlas14_stations.ipynb`** then **`apply_change_factors.ipynb`** "
-            "in `E:\\2026\\Future-Rainfall\\` to generate it."
+            f"Future rainfall file not found.  \n"
+            f"**Path checked:** `{_path_info}`  \n"
+            f"**Local file exists:** `{_exists}`"
         )
     else:
         # ── Filters ───────────────────────────────────────────────────────────
