@@ -3928,8 +3928,17 @@ with tab8:
                 color_scale = "Blues"
             else:
                 color_col   = "change_pct"
-                color_label = f"Change (%) vs baseline — {rf_horizon} {rf_ssp}"
+                color_label = f"Change % ({rf_horizon})"
                 color_scale = "RdYlGn"
+
+            # Color range: symmetric around 0 for Change%, data range for depth
+            if color_col == "change_pct":
+                _abs_max = max(abs(float(rf_sel[color_col].min())),
+                               abs(float(rf_sel[color_col].max())), 1.0)
+                _zmin, _zmax = -_abs_max, _abs_max
+            else:
+                _zmin = float(rf_sel[color_col].min())
+                _zmax = float(rf_sel[color_col].max())
 
             # ── Map ───────────────────────────────────────────────────────────
             with map_col:
@@ -3953,7 +3962,7 @@ with tab8:
                             color=rf_sel[color_col].tolist(),
                             colorscale=color_scale,
                             showscale=True,
-                            colorbar=dict(title=color_label, thickness=14, len=0.7),
+                            colorbar=dict(title=color_label, thickness=14, len=0.7, tickformat=".1f"),
                             opacity=0.85,
                         ),
                         text=[
@@ -3987,12 +3996,12 @@ with tab8:
                             z=vals_v,
                             featureidkey="properties.id",
                             colorscale=color_scale,
-                            zmin=float(rf_sel[color_col].min()),
-                            zmax=float(rf_sel[color_col].max()),
+                            zmin=_zmin,
+                            zmax=_zmax,
                             marker_opacity=0.75,
                             marker_line_width=0.3,
                             marker_line_color="white",
-                            colorbar=dict(title=color_label, thickness=14, len=0.7),
+                            colorbar=dict(title=color_label, thickness=14, len=0.7, tickformat=".1f"),
                             showscale=True,
                             name="Voronoi",
                             hovertemplate="Value: %{z:.2f}<extra></extra>",
@@ -4015,11 +4024,11 @@ with tab8:
                             z=vals_r,
                             featureidkey="properties.id",
                             colorscale=color_scale,
-                            zmin=float(rf_sel[color_col].min()),
-                            zmax=float(rf_sel[color_col].max()),
+                            zmin=_zmin,
+                            zmax=_zmax,
                             marker_opacity=0.80,
                             marker_line_width=0,
-                            colorbar=dict(title=color_label, thickness=14, len=0.7),
+                            colorbar=dict(title=color_label, thickness=14, len=0.7, tickformat=".1f"),
                             showscale=True,
                             name="Raster",
                             hovertemplate="Value: %{z:.2f} in<extra></extra>",
