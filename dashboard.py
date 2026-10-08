@@ -4029,46 +4029,6 @@ with tab8:
                     else:
                         st.warning("Interpolation returned no grid cells.")
 
-                # Highlight the selected station — two-layer: white ring then
-                # colored inner dot. Avoids marker.line which is invalid on
-                # go.Scattermap in newer Plotly versions.
-                _sel_stn = st.session_state.get("rf_station")
-                if _sel_stn and _sel_stn in rf_sel["station_name"].values:
-                    _hl = rf_sel[rf_sel["station_name"] == _sel_stn].iloc[0]
-                    _hover_text = (
-                        f"<b>★ {_hl['station_name']}</b><br>"
-                        f"Current: {_hl['depth_in']:.2f} in<br>"
-                        f"Future ({rf_horizon}): {_hl['future_depth_in']:.2f} in<br>"
-                        f"Change: +{_hl['change_pct']:.1f}%"
-                    )
-                    # Outer white ring
-                    fig_rf.add_trace(ScatterMapTrace(
-                        lon=[float(_hl["lon"])],
-                        lat=[float(_hl["lat"])],
-                        mode="markers",
-                        marker=dict(size=24, color="white", opacity=1.0),
-                        hoverinfo="skip",
-                        showlegend=False,
-                    ))
-                    # Inner colored dot matching the color scale
-                    fig_rf.add_trace(ScatterMapTrace(
-                        lon=[float(_hl["lon"])],
-                        lat=[float(_hl["lat"])],
-                        mode="markers",
-                        marker=dict(
-                            size=16,
-                            color=[float(_hl[color_col])],
-                            colorscale=color_scale,
-                            cmin=float(rf_sel[color_col].min()),
-                            cmax=float(rf_sel[color_col].max()),
-                            showscale=False,
-                            opacity=1.0,
-                        ),
-                        text=_hover_text,
-                        hovertemplate="%{text}<extra></extra>",
-                        showlegend=False,
-                        name="Selected",
-                    ))
 
                 fig_rf.update_layout(
                     **_map_layout(
