@@ -3891,7 +3891,7 @@ with tab8:
             if rf_view == "Future depth (inches)":
                 color_col   = "future_depth_in"
                 color_label = f"Future depth (in) — {rf_horizon} {rf_ssp}"
-                color_scale = "Blues"
+                color_scale = "Reds"
             elif rf_view == "Current depth / baseline (inches)":
                 color_col   = "depth_in"
                 color_label = "Current depth (in) — Atlas 14 baseline"
@@ -3985,12 +3985,12 @@ with tab8:
                                 lat=rlat.tolist(),
                                 mode="markers",
                                 marker=dict(
-                                    size=6,
+                                    size=14,
                                     color=rval.tolist(),
                                     colorscale=color_scale,
                                     showscale=True,
                                     colorbar=dict(title=color_label, thickness=14, len=0.7),
-                                    opacity=0.90,
+                                    opacity=0.80,
                                 ),
                                 hoverinfo="skip",
                                 name="Raster",
@@ -4015,7 +4015,7 @@ with tab8:
                         lon=[float(_hl["lon"])],
                         lat=[float(_hl["lat"])],
                         mode="markers",
-                        marker=dict(size=15, color="gold", opacity=1.0),
+                        marker=dict(size=24, color="white", opacity=1.0),
                         hoverinfo="skip",
                         showlegend=False,
                     ))
@@ -4025,7 +4025,7 @@ with tab8:
                         lat=[float(_hl["lat"])],
                         mode="markers",
                         marker=dict(
-                            size=10,
+                            size=16,
                             color=[float(_hl[color_col])],
                             colorscale=color_scale,
                             cmin=float(rf_sel[color_col].min()),
@@ -4057,17 +4057,8 @@ with tab8:
             with detail_col:
                 st.markdown("**Station detail**")
                 station_names = sorted(rf_sel["station_name"].unique())
-                # Default to station nearest Florida's geographic centre (28.1°N, -81.6°W)
-                _cx, _cy = -81.6, 28.1
-                _default_stn = (
-                    rf_sel.assign(
-                        _d=((rf_sel["lon"] - _cx)**2 + (rf_sel["lat"] - _cy)**2)
-                    )
-                    .sort_values("_d")["station_name"].iloc[0]
-                )
-                _default_idx = station_names.index(_default_stn) if _default_stn in station_names else 0
                 selected_station = st.selectbox(
-                    "Select station", station_names, index=_default_idx, key="rf_station"
+                    "Select station", station_names, key="rf_station"
                 )
 
                 # Pull all horizons + SSPs for this station / duration / return period
