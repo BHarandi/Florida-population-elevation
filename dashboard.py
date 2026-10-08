@@ -1,7 +1,7 @@
 """
 Florida Population by Elevation — Streamlit Dashboard
 Author: Bellah Harandi
-Date: July-September 2026
+Date: July-October 2026
 
 Run: python -m streamlit run dashboard.py
 """
