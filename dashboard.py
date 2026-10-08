@@ -3921,7 +3921,7 @@ with tab8:
             if rf_view == "Future depth (inches)":
                 color_col   = "future_depth_in"
                 color_label = f"Future depth (in) — {rf_horizon} {rf_ssp}"
-                color_scale = "Reds"
+                color_scale = "Blues"
             elif rf_view == "Current depth / baseline (inches)":
                 color_col   = "depth_in"
                 color_label = "Current depth (in) — Atlas 14 baseline"
