@@ -37,6 +37,12 @@ if hasattr(px, "choropleth_mapbox"):
 else:
     _choropleth_map_fn = px.choropleth_map
     _MAP_STYLE_KWARG = "map_style"
+
+# go.Choroplethmapbox was renamed to go.Choroplethmap in the same Plotly release
+if hasattr(go, "Choroplethmapbox"):
+    ChoroplethMapTrace = go.Choroplethmapbox
+else:
+    ChoroplethMapTrace = go.Choroplethmap
 import numpy as np
 import rasterio
 from rasterio.mask import mask as rio_mask
@@ -74,6 +80,13 @@ TIDE_DATUMS_PATH = _TIDE_LOCAL if os.path.exists(_TIDE_LOCAL) else _TIDE_GITHUB
 _ESL_LOCAL  = os.path.join(_BASE, "data", "esl_return_levels_fl.parquet")
 _ESL_GITHUB = "https://raw.githubusercontent.com/BHarandi/Florida-population-elevation/main/data/esl_return_levels_fl.parquet"
 ESL_PATH    = _ESL_LOCAL if os.path.exists(_ESL_LOCAL) else _ESL_GITHUB
+
+# ── Future Rainfall (Atlas 14 × Change Factors) ───────────────────────────────
+_GITHUB_RAW      = "https://raw.githubusercontent.com/BHarandi/Florida-population-elevation/main/data"
+_RAINFALL_FNAME  = "future_rainfall_20261008_144133.csv"
+_RAINFALL_LOCAL  = os.path.join(_BASE, "data", _RAINFALL_FNAME)
+_RAINFALL_GITHUB = f"{_GITHUB_RAW}/{_RAINFALL_FNAME}"
+RAINFALL_PATH    = _RAINFALL_LOCAL if os.path.exists(_RAINFALL_LOCAL) else _RAINFALL_GITHUB
 
 # FDEP Solid Waste Facilities (statewide, from services1.arcgis.com/9lDFdeC4JIBgML6L/
 # .../FDEP_Solid_Waste_Facilities/FeatureServer/260 — see data/Solid Waste/ for how it
@@ -861,6 +874,132 @@ def compute_population_at_risk(geom_wkt: str, year: int, threshold_m: float):
     return pop_at_risk, pop_total
 
 
+@st.cache_data(show_spinner="Loading future rainfall data…")
+def load_rainfall_data():
+    if not RAINFALL_PATH:
+        return None
+    if RAINFALL_PATH.startswith("http"):
+        try:
+            return pd.read_csv(RAINFALL_PATH)
+        except Exception:
+            return None
+    if not os.path.exists(RAINFALL_PATH):
+        return None
+    try:
+        return pd.read_csv(RAINFALL_PATH)
+    except Exception:
+        return None
+
+
+@st.cache_data(show_spinner="Building Voronoi polygons…")
+def _build_voronoi_geojson(lons_t, lats_t, vals_t):
+    """Thiessen/Voronoi polygons clipped to Florida.
+    Returns (geojson, ids, values, error_msg). error_msg is None on success."""
+    try:
+        from shapely.ops import unary_union, voronoi_diagram
+        from shapely.geometry import MultiPoint, Polygon
+        from scipy.spatial import cKDTree
+        import geopandas as gpd
+    except ImportError as e:
+        return None, [], [], f"Missing package: {e}"
+
+    try:
+        lons = np.array(lons_t)
+        lats = np.array(lats_t)
+        vals = np.array(vals_t)
+
+        if os.path.exists(STATE_SHP):
+            fl_poly = unary_union(gpd.read_file(STATE_SHP).to_crs(epsg=4326).geometry)
+        else:
+            fl_poly = Polygon([(-87.7, 24.4), (-79.9, 24.4), (-79.9, 31.1), (-87.7, 31.1)])
+
+        pts_geom = MultiPoint(list(zip(lons.tolist(), lats.tolist())))
+        envelope = fl_poly.buffer(0.5).envelope
+        regions = voronoi_diagram(pts_geom, envelope=envelope)
+
+        pts_arr = np.column_stack([lons, lats])
+        tree = cKDTree(pts_arr)
+
+        features = []
+        feat_vals = []
+        for region in regions.geoms:
+            try:
+                clipped = region.intersection(fl_poly)
+            except Exception:
+                continue
+            if clipped.is_empty or clipped.geom_type not in ("Polygon", "MultiPolygon"):
+                continue
+            cx, cy = region.centroid.x, region.centroid.y
+            _, idx = tree.query([cx, cy])
+            j = len(features)
+            features.append({
+                "type": "Feature",
+                "id": str(j),
+                "geometry": clipped.__geo_interface__,
+                "properties": {"id": str(j)},
+            })
+            feat_vals.append(float(vals[idx]))
+
+        geojson = {"type": "FeatureCollection", "features": features}
+        ids = [f["id"] for f in features]
+        return geojson, ids, feat_vals, None
+
+    except Exception as e:
+        return None, [], [], f"{type(e).__name__}: {e}"
+
+
+@st.cache_data(show_spinner="Interpolating rainfall surface…")
+def _build_interp_raster(lons_t, lats_t, vals_t, resolution=0.08):
+    """Linear interpolation onto a regular grid masked to Florida.
+    Returns (grid_lons, grid_lats, grid_vals) for in-Florida points only."""
+    try:
+        from scipy.interpolate import griddata
+        from shapely.geometry import Point
+        from shapely.ops import unary_union
+        from shapely.prepared import prep
+        import geopandas as gpd
+    except ImportError:
+        return np.array([]), np.array([]), np.array([])
+
+    lons = np.array(lons_t)
+    lats = np.array(lats_t)
+    vals = np.array(vals_t)
+
+    if os.path.exists(STATE_SHP):
+        fl_poly = unary_union(gpd.read_file(STATE_SHP).to_crs(epsg=4326).geometry)
+    else:
+        fl_poly = None
+
+    glon, glat = np.meshgrid(
+        np.arange(lons.min(), lons.max() + resolution, resolution),
+        np.arange(lats.min(), lats.max() + resolution, resolution),
+    )
+    glon_flat = glon.ravel()
+    glat_flat = glat.ravel()
+
+    zvals = griddata(
+        np.column_stack([lons, lats]),
+        vals,
+        (glon_flat, glat_flat),
+        method="linear",
+    )
+
+    valid = ~np.isnan(zvals)
+
+    if fl_poly is not None:
+        prepped = prep(fl_poly)
+        valid_idxs = np.where(valid)[0]
+        in_fl = np.array([
+            prepped.contains_properly(Point(float(glon_flat[k]), float(glat_flat[k])))
+            for k in valid_idxs
+        ])
+        final = np.zeros(len(glon_flat), dtype=bool)
+        final[valid_idxs[in_fl]] = True
+        valid = final
+
+    return glon_flat[valid], glat_flat[valid], zvals[valid]
+
+
 @st.cache_data(show_spinner="Loading waste facilities and sampling flood connectivity…")
 def get_waste_facilities_with_threshold():
     """
@@ -1222,7 +1361,7 @@ for _ln_pre in INFRA_LAYERS:
         st.session_state[_k_pre] = _ln_pre in ("Aviation (Airports)",)
 
 # ── Tabs ──────────────────────────────────────────────────────────────────────
-tab1, tab2, tab3, tab4, tab5, tab6, tab7 = st.tabs(["Distribution", "Map", "Sea Level Rise", "FEMA Lifeline", "Economic Activity", "Hazards", "Waste Facilities"])
+tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8 = st.tabs(["Distribution", "Map", "Sea Level Rise", "FEMA Lifeline", "Economic Activity", "Hazards", "Waste Facilities", "Rainfall"])
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -3651,6 +3790,367 @@ with tab7:
                     file_name=f"waste_facilities_at_risk_{waste_slr_label.replace(' ', '')}.csv",
                     mime="text/csv",
                 )
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# TAB 8 — Rainfall (Atlas 14 current + future via change factors)
+# ─────────────────────────────────────────────────────────────────────────────
+with tab8:
+    st.subheader("Precipitation Frequency — Current & Future Rainfall")
+    st.caption(
+        "NOAA Atlas 14 historical baseline (depth-duration-frequency) multiplied by "
+        "Florida Flood Hub change factors (LOCA2 downscaling, SSP2-4.5 / SSP3-7.0 / SSP5-8.5). "
+        "Durations covered: 24-hr, 3-day, 7-day.  Return periods: 5 to 500-yr."
+    )
+
+    rf_df = load_rainfall_data()
+
+    if rf_df is None:
+        st.warning(
+            "Future rainfall file not found. "
+            "Run **`download_atlas14_stations.ipynb`** then **`apply_change_factors.ipynb`** "
+            "in `E:\\2026\\Future-Rainfall\\` to generate it."
+        )
+    else:
+        # ── Filters ───────────────────────────────────────────────────────────
+        rf_c1, rf_c2, rf_c3, rf_c4 = st.columns(4)
+        with rf_c1:
+            rf_duration = st.selectbox(
+                "Duration",
+                sorted(rf_df["duration"].unique()),
+                index=list(sorted(rf_df["duration"].unique())).index("24-hr")
+                      if "24-hr" in rf_df["duration"].unique() else 0,
+                key="rf_duration",
+            )
+        with rf_c2:
+            rf_rp = st.selectbox(
+                "Return period",
+                sorted(rf_df["return_period"].unique(),
+                       key=lambda x: int(x.replace("-yr", ""))),
+                index=list(sorted(rf_df["return_period"].unique(),
+                       key=lambda x: int(x.replace("-yr", "")))).index("100-yr")
+                      if "100-yr" in rf_df["return_period"].unique() else 0,
+                key="rf_rp",
+            )
+        with rf_c3:
+            rf_horizon = st.selectbox(
+                "Planning horizon",
+                sorted(rf_df["horizon"].unique()),
+                index=1,   # default 2050
+                key="rf_horizon",
+            )
+        with rf_c4:
+            rf_ssp = st.selectbox(
+                "SSP scenario",
+                sorted(rf_df["SSP"].unique()),
+                key="rf_ssp",
+            )
+
+        rf_view = st.radio(
+            "Map shows",
+            ["Future depth (inches)", "Current depth / baseline (inches)", "Change (%)"],
+            horizontal=True,
+            key="rf_view",
+        )
+
+        rf_spatial = st.radio(
+            "Spatial display",
+            ["Station Dots", "Voronoi Fill", "Interpolated Raster"],
+            horizontal=True,
+            key="rf_spatial",
+        )
+
+        st.markdown("---")
+
+        # ── Filter data ───────────────────────────────────────────────────────
+        rf_sel = rf_df[
+            (rf_df["duration"]      == rf_duration) &
+            (rf_df["return_period"] == rf_rp) &
+            (rf_df["horizon"]       == rf_horizon) &
+            (rf_df["SSP"]           == rf_ssp)
+        ].drop_duplicates(subset=["station_name", "lat", "lon"])
+
+        if rf_sel.empty:
+            st.info("No data for this filter combination.")
+        else:
+            # ── KPI metrics ───────────────────────────────────────────────────
+            k1, k2, k3, k4 = st.columns(4)
+            k1.metric("Stations", f"{len(rf_sel):,}")
+            k2.metric("Avg current depth",
+                      f"{rf_sel['depth_in'].mean():.2f} in")
+            k3.metric(f"Avg future depth ({rf_horizon})",
+                      f"{rf_sel['future_depth_in'].mean():.2f} in")
+            k4.metric("Avg increase",
+                      f"+{rf_sel['change_pct'].mean():.1f}%")
+
+            st.markdown("---")
+
+            map_col, detail_col = st.columns([3, 1])
+
+            # Decide which column drives the colour scale
+            if rf_view == "Future depth (inches)":
+                color_col   = "future_depth_in"
+                color_label = f"Future depth (in) — {rf_horizon} {rf_ssp}"
+                color_scale = "Reds"
+            elif rf_view == "Current depth / baseline (inches)":
+                color_col   = "depth_in"
+                color_label = "Current depth (in) — Atlas 14 baseline"
+                color_scale = "Blues"
+            else:
+                color_col   = "change_pct"
+                color_label = f"Change (%) vs baseline — {rf_horizon} {rf_ssp}"
+                color_scale = "RdYlGn"
+
+            # ── Map ───────────────────────────────────────────────────────────
+            with map_col:
+                fig_rf = go.Figure()
+
+                # State boundary (always shown)
+                for _lons, _lats in state_rings:
+                    fig_rf.add_trace(ScatterMapTrace(
+                        lon=_lons, lat=_lats, mode="lines",
+                        line=dict(color="black", width=1.2),
+                        hoverinfo="skip", showlegend=False,
+                    ))
+
+                if rf_spatial == "Station Dots":
+                    fig_rf.add_trace(ScatterMapTrace(
+                        lon=rf_sel["lon"].tolist(),
+                        lat=rf_sel["lat"].tolist(),
+                        mode="markers",
+                        marker=dict(
+                            size=9,
+                            color=rf_sel[color_col].tolist(),
+                            colorscale=color_scale,
+                            showscale=True,
+                            colorbar=dict(title=color_label, thickness=14, len=0.7),
+                            opacity=0.85,
+                        ),
+                        text=[
+                            f"<b>{n}</b><br>"
+                            f"Current: {d:.2f} in<br>"
+                            f"Future ({rf_horizon}): {fd:.2f} in<br>"
+                            f"Change: +{cp:.1f}%<br>"
+                            f"CF (median): {cf:.3f}"
+                            for n, d, fd, cp, cf in zip(
+                                rf_sel["station_name"],
+                                rf_sel["depth_in"],
+                                rf_sel["future_depth_in"],
+                                rf_sel["change_pct"],
+                                rf_sel["cf_median"],
+                            )
+                        ],
+                        hovertemplate="%{text}<extra></extra>",
+                        name="Stations",
+                    ))
+
+                elif rf_spatial == "Voronoi Fill":
+                    geojson_v, ids_v, vals_v, err_v = _build_voronoi_geojson(
+                        tuple(rf_sel["lon"].tolist()),
+                        tuple(rf_sel["lat"].tolist()),
+                        tuple(rf_sel[color_col].tolist()),
+                    )
+                    if ids_v:
+                        fig_rf.add_trace(ChoroplethMapTrace(
+                            geojson=geojson_v,
+                            locations=ids_v,
+                            z=vals_v,
+                            featureidkey="properties.id",
+                            colorscale=color_scale,
+                            zmin=float(rf_sel[color_col].min()),
+                            zmax=float(rf_sel[color_col].max()),
+                            marker_opacity=0.75,
+                            marker_line_width=0.3,
+                            marker_line_color="white",
+                            colorbar=dict(title=color_label, thickness=14, len=0.7),
+                            showscale=True,
+                            name="Voronoi",
+                            hovertemplate="Value: %{z:.2f}<extra></extra>",
+                        ))
+                    elif err_v:
+                        st.error(f"Voronoi error: {err_v}")
+                    else:
+                        st.warning("Voronoi returned no polygons.")
+
+                else:  # Interpolated Raster
+                    try:
+                        rlon, rlat, rval = _build_interp_raster(
+                            tuple(rf_sel["lon"].tolist()),
+                            tuple(rf_sel["lat"].tolist()),
+                            tuple(rf_sel[color_col].tolist()),
+                        )
+                        if len(rval) > 0:
+                            fig_rf.add_trace(ScatterMapTrace(
+                                lon=rlon.tolist(),
+                                lat=rlat.tolist(),
+                                mode="markers",
+                                marker=dict(
+                                    size=14,
+                                    color=rval.tolist(),
+                                    colorscale=color_scale,
+                                    showscale=True,
+                                    colorbar=dict(title=color_label, thickness=14, len=0.7),
+                                    opacity=0.80,
+                                ),
+                                hoverinfo="skip",
+                                name="Raster",
+                            ))
+                    except Exception as _re:
+                        st.warning(f"Interpolation failed: {_re}")
+
+                # Highlight the selected station — two-layer: white ring then
+                # colored inner dot. Avoids marker.line which is invalid on
+                # go.Scattermap in newer Plotly versions.
+                _sel_stn = st.session_state.get("rf_station")
+                if _sel_stn and _sel_stn in rf_sel["station_name"].values:
+                    _hl = rf_sel[rf_sel["station_name"] == _sel_stn].iloc[0]
+                    _hover_text = (
+                        f"<b>★ {_hl['station_name']}</b><br>"
+                        f"Current: {_hl['depth_in']:.2f} in<br>"
+                        f"Future ({rf_horizon}): {_hl['future_depth_in']:.2f} in<br>"
+                        f"Change: +{_hl['change_pct']:.1f}%"
+                    )
+                    # Outer white ring
+                    fig_rf.add_trace(ScatterMapTrace(
+                        lon=[float(_hl["lon"])],
+                        lat=[float(_hl["lat"])],
+                        mode="markers",
+                        marker=dict(size=24, color="white", opacity=1.0),
+                        hoverinfo="skip",
+                        showlegend=False,
+                    ))
+                    # Inner colored dot matching the color scale
+                    fig_rf.add_trace(ScatterMapTrace(
+                        lon=[float(_hl["lon"])],
+                        lat=[float(_hl["lat"])],
+                        mode="markers",
+                        marker=dict(
+                            size=16,
+                            color=[float(_hl[color_col])],
+                            colorscale=color_scale,
+                            cmin=float(rf_sel[color_col].min()),
+                            cmax=float(rf_sel[color_col].max()),
+                            showscale=False,
+                            opacity=1.0,
+                        ),
+                        text=_hover_text,
+                        hovertemplate="%{text}<extra></extra>",
+                        showlegend=False,
+                        name="Selected",
+                    ))
+
+                fig_rf.update_layout(
+                    **_map_layout(
+                        style="carto-positron",
+                        zoom=5.5,
+                        center={"lat": 27.8, "lon": -81.5},
+                    ),
+                    height=580,
+                    margin={"r": 0, "t": 10, "l": 0, "b": 0},
+                    uirevision=f"rf_{rf_duration}_{rf_rp}_{rf_horizon}_{rf_ssp}_{rf_spatial}",
+                )
+                st.plotly_chart(fig_rf, use_container_width=True,
+                                config={"scrollZoom": True},
+                                key="rf_map")
+
+            # ── Right panel: station selector + time-series chart ────────────
+            with detail_col:
+                st.markdown("**Station detail**")
+                station_names = sorted(rf_sel["station_name"].unique())
+                selected_station = st.selectbox(
+                    "Select station", station_names, key="rf_station"
+                )
+
+                # Pull all horizons + SSPs for this station / duration / return period
+                stn_data = rf_df[
+                    (rf_df["station_name"]  == selected_station) &
+                    (rf_df["duration"]      == rf_duration) &
+                    (rf_df["return_period"] == rf_rp)
+                ]
+
+                if not stn_data.empty:
+                    baseline = stn_data["depth_in"].iloc[0]
+                    st.metric("Atlas 14 baseline", f"{baseline:.2f} in")
+
+                    # One line per SSP across horizons
+                    fig_ts = go.Figure()
+                    for ssp_val in sorted(stn_data["SSP"].unique()):
+                        ssp_rows = stn_data[stn_data["SSP"] == ssp_val].sort_values("horizon")
+                        fig_ts.add_trace(go.Scatter(
+                            x=ssp_rows["horizon"].tolist(),
+                            y=ssp_rows["future_depth_in"].tolist(),
+                            mode="lines+markers",
+                            name=f"SSP{ssp_val}",
+                            line=dict(width=2),
+                            marker=dict(size=7),
+                            error_y=dict(
+                                type="data",
+                                array=(ssp_rows["future_depth_high_in"]
+                                       - ssp_rows["future_depth_in"]).tolist(),
+                                arrayminus=(ssp_rows["future_depth_in"]
+                                            - ssp_rows["future_depth_low_in"]).tolist(),
+                                visible=True,
+                                thickness=1.5,
+                            ),
+                        ))
+                    # Baseline horizontal line
+                    fig_ts.add_hline(
+                        y=baseline, line_dash="dot",
+                        line_color="gray", line_width=1.5,
+                        annotation_text="baseline",
+                        annotation_position="bottom right",
+                    )
+                    fig_ts.update_layout(
+                        title=dict(
+                            text=f"{selected_station}<br>"
+                                 f"<sup>{rf_duration} / {rf_rp}</sup>",
+                            font=dict(size=13),
+                        ),
+                        xaxis_title="Planning horizon",
+                        yaxis_title="Depth (inches)",
+                        height=320,
+                        plot_bgcolor="#f8f9fa",
+                        legend=dict(font=dict(size=10)),
+                        margin={"r": 5, "t": 55, "l": 5, "b": 40},
+                    )
+                    st.plotly_chart(fig_ts, use_container_width=True)
+
+            # ── Summary table + download ──────────────────────────────────────
+            st.markdown("---")
+            st.markdown(
+                f"**All stations — {rf_duration} / {rf_rp} / {rf_horizon} / SSP{rf_ssp}**"
+            )
+            rf_display = (
+                rf_sel[[
+                    "station_name", "station_id", "lat", "lon", "elevation_ft",
+                    "depth_in", "future_depth_in", "future_depth_low_in",
+                    "future_depth_high_in", "change_in", "change_pct", "cf_median",
+                ]]
+                .rename(columns={
+                    "station_name":        "Station",
+                    "station_id":          "ID",
+                    "elevation_ft":        "Elev (ft)",
+                    "depth_in":            "Current (in)",
+                    "future_depth_in":     f"Future {rf_horizon} (in)",
+                    "future_depth_low_in": "Low (in)",
+                    "future_depth_high_in":"High (in)",
+                    "change_in":           "Change (in)",
+                    "change_pct":          "Change (%)",
+                    "cf_median":           "CF",
+                })
+                .sort_values(f"Future {rf_horizon} (in)", ascending=False)
+                .reset_index(drop=True)
+            )
+            st.dataframe(rf_display, use_container_width=True, hide_index=True)
+            st.download_button(
+                label="Download filtered data (CSV)",
+                data=rf_sel.to_csv(index=False).encode("utf-8"),
+                file_name=(
+                    f"future_rainfall_{rf_duration}_{rf_rp}"
+                    f"_{rf_horizon}_SSP{rf_ssp}.csv"
+                ),
+                mime="text/csv",
+            )
 
 
 # ── Footer ────────────────────────────────────────────────────────────────────
