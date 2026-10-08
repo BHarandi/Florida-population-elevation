@@ -949,44 +949,45 @@ def _build_voronoi_geojson(lons_t, lats_t, vals_t):
 
 
 @st.cache_data(show_spinner="Interpolating rainfall surface…")
-def _build_interp_raster(lons_t, lats_t, vals_t, resolution=0.08):
+def _build_interp_raster(lons_t, lats_t, vals_t, resolution=0.10):
     """Linear interpolation onto a regular grid masked to Florida.
-    Returns (grid_lons, grid_lats, grid_vals) for in-Florida points only."""
+    Returns (geojson, ids, vals, error_msg) — each cell is a filled rectangle
+    rendered with ChoroplethMapTrace for a proper continuous-looking grid."""
     try:
         from scipy.interpolate import griddata
-        from shapely.geometry import Point
+        from shapely.geometry import Point, Polygon
         from shapely.ops import unary_union
         from shapely.prepared import prep
         import geopandas as gpd
-    except ImportError:
-        return np.array([]), np.array([]), np.array([])
+    except ImportError as e:
+        return None, [], [], f"Missing package: {e}"
 
-    lons = np.array(lons_t)
-    lats = np.array(lats_t)
-    vals = np.array(vals_t)
+    try:
+        lons = np.array(lons_t)
+        lats = np.array(lats_t)
+        vals = np.array(vals_t)
 
-    if os.path.exists(STATE_SHP):
-        fl_poly = unary_union(gpd.read_file(STATE_SHP).to_crs(epsg=4326).geometry)
-    else:
-        fl_poly = None
+        if os.path.exists(STATE_SHP):
+            fl_poly = unary_union(gpd.read_file(STATE_SHP).to_crs(epsg=4326).geometry)
+        else:
+            fl_poly = Polygon([(-87.7, 24.4), (-79.9, 24.4), (-79.9, 31.1), (-87.7, 31.1)])
 
-    glon, glat = np.meshgrid(
-        np.arange(lons.min(), lons.max() + resolution, resolution),
-        np.arange(lats.min(), lats.max() + resolution, resolution),
-    )
-    glon_flat = glon.ravel()
-    glat_flat = glat.ravel()
+        glon_arr = np.arange(lons.min(), lons.max() + resolution, resolution)
+        glat_arr = np.arange(lats.min(), lats.max() + resolution, resolution)
+        glon, glat = np.meshgrid(glon_arr, glat_arr)
+        glon_flat = glon.ravel()
+        glat_flat = glat.ravel()
 
-    zvals = griddata(
-        np.column_stack([lons, lats]),
-        vals,
-        (glon_flat, glat_flat),
-        method="linear",
-    )
+        zvals = griddata(
+            np.column_stack([lons, lats]),
+            vals,
+            (glon_flat, glat_flat),
+            method="linear",
+        )
 
-    valid = ~np.isnan(zvals)
+        valid = ~np.isnan(zvals)
 
-    if fl_poly is not None:
+        # Mask to Florida polygon
         prepped = prep(fl_poly)
         valid_idxs = np.where(valid)[0]
         in_fl = np.array([
@@ -997,7 +998,36 @@ def _build_interp_raster(lons_t, lats_t, vals_t, resolution=0.08):
         final[valid_idxs[in_fl]] = True
         valid = final
 
-    return glon_flat[valid], glat_flat[valid], zvals[valid]
+        # Build GeoJSON rectangles — each cell is a filled square tile
+        half = resolution / 2
+        features = []
+        feat_vals = []
+        for i, (glo, gla, gv) in enumerate(
+            zip(glon_flat[valid], glat_flat[valid], zvals[valid])
+        ):
+            features.append({
+                "type": "Feature",
+                "id": str(i),
+                "geometry": {
+                    "type": "Polygon",
+                    "coordinates": [[
+                        [float(glo - half), float(gla - half)],
+                        [float(glo + half), float(gla - half)],
+                        [float(glo + half), float(gla + half)],
+                        [float(glo - half), float(gla + half)],
+                        [float(glo - half), float(gla - half)],
+                    ]],
+                },
+                "properties": {"id": str(i)},
+            })
+            feat_vals.append(float(gv))
+
+        geojson = {"type": "FeatureCollection", "features": features}
+        ids = [f["id"] for f in features]
+        return geojson, ids, feat_vals, None
+
+    except Exception as e:
+        return None, [], [], f"{type(e).__name__}: {e}"
 
 
 @st.cache_data(show_spinner="Loading waste facilities and sampling flood connectivity…")
@@ -3972,31 +4002,32 @@ with tab8:
                     else:
                         st.warning("Voronoi returned no polygons.")
 
-                else:  # Interpolated Raster
-                    try:
-                        rlon, rlat, rval = _build_interp_raster(
-                            tuple(rf_sel["lon"].tolist()),
-                            tuple(rf_sel["lat"].tolist()),
-                            tuple(rf_sel[color_col].tolist()),
-                        )
-                        if len(rval) > 0:
-                            fig_rf.add_trace(ScatterMapTrace(
-                                lon=rlon.tolist(),
-                                lat=rlat.tolist(),
-                                mode="markers",
-                                marker=dict(
-                                    size=6,
-                                    color=rval.tolist(),
-                                    colorscale=color_scale,
-                                    showscale=True,
-                                    colorbar=dict(title=color_label, thickness=14, len=0.7),
-                                    opacity=0.90,
-                                ),
-                                hoverinfo="skip",
-                                name="Raster",
-                            ))
-                    except Exception as _re:
-                        st.warning(f"Interpolation failed: {_re}")
+                else:  # Interpolated Raster — filled 0.1° grid cells
+                    geojson_r, ids_r, vals_r, err_r = _build_interp_raster(
+                        tuple(rf_sel["lon"].tolist()),
+                        tuple(rf_sel["lat"].tolist()),
+                        tuple(rf_sel[color_col].tolist()),
+                    )
+                    if ids_r:
+                        fig_rf.add_trace(ChoroplethMapTrace(
+                            geojson=geojson_r,
+                            locations=ids_r,
+                            z=vals_r,
+                            featureidkey="properties.id",
+                            colorscale=color_scale,
+                            zmin=float(rf_sel[color_col].min()),
+                            zmax=float(rf_sel[color_col].max()),
+                            marker_opacity=0.80,
+                            marker_line_width=0,
+                            colorbar=dict(title=color_label, thickness=14, len=0.7),
+                            showscale=True,
+                            name="Raster",
+                            hovertemplate="Value: %{z:.2f} in<extra></extra>",
+                        ))
+                    elif err_r:
+                        st.error(f"Interpolation error: {err_r}")
+                    else:
+                        st.warning("Interpolation returned no grid cells.")
 
                 # Highlight the selected station — two-layer: white ring then
                 # colored inner dot. Avoids marker.line which is invalid on
