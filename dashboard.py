@@ -3897,7 +3897,7 @@ with tab8:
             if rf_view == "Future depth (inches)":
                 color_col   = "future_depth_in"
                 color_label = f"Future depth (in) — {rf_horizon} {rf_ssp}"
-                color_scale = "Reds"
+                color_scale = "Blues"
             elif rf_view == "Current depth / baseline (inches)":
                 color_col   = "depth_in"
                 color_label = "Current depth (in) — Atlas 14 baseline"
@@ -4021,7 +4021,7 @@ with tab8:
                         lon=[float(_hl["lon"])],
                         lat=[float(_hl["lat"])],
                         mode="markers",
-                        marker=dict(size=24, color="white", opacity=1.0),
+                        marker=dict(size=15, color="gold", opacity=1.0),
                         hoverinfo="skip",
                         showlegend=False,
                     ))
@@ -4031,7 +4031,7 @@ with tab8:
                         lat=[float(_hl["lat"])],
                         mode="markers",
                         marker=dict(
-                            size=16,
+                            size=10,
                             color=[float(_hl[color_col])],
                             colorscale=color_scale,
                             cmin=float(rf_sel[color_col].min()),
