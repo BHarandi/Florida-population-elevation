@@ -1,7 +1,7 @@
 """
 Florida Population by Elevation — Streamlit Dashboard
 Author: Bellah Harandi
-Date: July-October 2026
+Date: July-September 2026
 
 Run: python -m streamlit run dashboard.py
 """
@@ -11,10 +11,18 @@ Run: python -m streamlit run dashboard.py
 # causing CRS lookups by EPSG code to fail inside rasterio.warp.transform_geom
 # and rasterio.warp.reproject.  Set PROJ_DATA / PROJ_LIB to rasterio's bundled
 # copy before any geo library initialises PROJ.
-import os as _os, sys as _sys
-_rp = _os.path.join(_os.path.dirname(_sys.executable),
-                    "site-packages", "rasterio", "proj_data")
-if not _os.path.isdir(_rp):
+import os as _os, sys as _sys, importlib.util as _iu
+_rp = None
+
+# Primary: use importlib to locate rasterio's package dir — works on any OS/layout
+_spec = _iu.find_spec("rasterio")
+if _spec is not None and _spec.origin is not None:
+    _candidate = _os.path.join(_os.path.dirname(_spec.origin), "proj_data")
+    if _os.path.isdir(_candidate):
+        _rp = _candidate
+
+# Fallback: glob under home directory (catches user-level conda/pip installs)
+if _rp is None:
     import glob as _glob
     _hits = _glob.glob(
         _os.path.join(_os.path.expanduser("~"), "**", "rasterio", "proj_data"),
@@ -22,10 +30,14 @@ if not _os.path.isdir(_rp):
     )
     if _hits:
         _rp = _hits[0]
-if _os.path.isdir(_rp):
+
+if _rp and _os.path.isdir(_rp):
     _os.environ.setdefault("PROJ_DATA", _rp)
     _os.environ.setdefault("PROJ_LIB",  _rp)
-del _os, _sys, _rp
+    print(f"[PROJ fix] PROJ_DATA set to: {_rp}", flush=True)
+else:
+    print(f"[PROJ fix] WARNING: rasterio proj_data NOT found; PROJ env unchanged", flush=True)
+del _os, _sys, _iu, _spec, _rp
 # ─────────────────────────────────────────────────────────────────────────────
 
 import streamlit as st
@@ -657,10 +669,13 @@ def get_dem_overlay(geom_wkt: str, unit_k: str):
                     wm, [geom_4269.__geo_interface__], crop=True, filled=True, nodata=0,
                 )
             water_ds = wm_image[0][::step_h, ::step_w].astype(bool)
+            h_ds, w_ds = rgba.shape[:2]
+            water_ds = water_ds[:h_ds, :w_ds]
             rgba[water_ds] = [0, 0, 0, 0]       # transparent for open water
             label_arr[water_ds] = ""
-        except Exception:
-            pass
+            print(f"[dem overlay] water mask applied: {water_ds.sum()} px transparent", flush=True)
+        except Exception as _wm_err:
+            print(f"[dem overlay] water mask FAILED: {_wm_err}", flush=True)
 
     # Outside polygon → fully transparent
     rgba[poly_outside_ds] = [0, 0, 0, 0]
@@ -767,9 +782,13 @@ def get_flood_overlay(geom_wkt: str, sea_level_m: float, baseline_m: float = 0.0
                     wm, [geom_4269.__geo_interface__], crop=True, filled=True, nodata=0,
                 )
             water_ds = wm_image[0][::step_h, ::step_w].astype(bool)
+            h_ds, w_ds = rgba.shape[:2]
+            water_ds = water_ds[:h_ds, :w_ds]  # guard against 1-pixel crop difference
             rgba[water_ds] = [0, 0, 0, 0]
-        except Exception:
-            pass
+            print(f"[flood overlay] water mask applied: {water_ds.sum()} px transparent, "
+                  f"thr shape={thr_ma.shape}, wm shape={wm_image[0].shape}", flush=True)
+        except Exception as _wm_err:
+            print(f"[flood overlay] water mask FAILED: {_wm_err}", flush=True)
 
     img = Image.fromarray(rgba, "RGBA")
     buf = io.BytesIO()
