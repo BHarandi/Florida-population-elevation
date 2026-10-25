@@ -1,10 +1,32 @@
 """
 Florida Population by Elevation — Streamlit Dashboard
 Author: Bellah Harandi
-Date: July-September 2026
+Date: July-October 2026
 
 Run: python -m streamlit run dashboard.py
 """
+
+# ── PROJ database fix ─────────────────────────────────────────────────────────
+# PostgreSQL ships an older PROJ database that can override rasterio's own copy,
+# causing CRS lookups by EPSG code to fail inside rasterio.warp.transform_geom
+# and rasterio.warp.reproject.  Set PROJ_DATA / PROJ_LIB to rasterio's bundled
+# copy before any geo library initialises PROJ.
+import os as _os, sys as _sys
+_rp = _os.path.join(_os.path.dirname(_sys.executable),
+                    "site-packages", "rasterio", "proj_data")
+if not _os.path.isdir(_rp):
+    import glob as _glob
+    _hits = _glob.glob(
+        _os.path.join(_os.path.expanduser("~"), "**", "rasterio", "proj_data"),
+        recursive=True,
+    )
+    if _hits:
+        _rp = _hits[0]
+if _os.path.isdir(_rp):
+    _os.environ.setdefault("PROJ_DATA", _rp)
+    _os.environ.setdefault("PROJ_LIB",  _rp)
+del _os, _sys, _rp
+# ─────────────────────────────────────────────────────────────────────────────
 
 import streamlit as st
 import pandas as pd
@@ -625,18 +647,14 @@ def get_dem_overlay(geom_wkt: str, unit_k: str):
 
     # Mask out water bodies — USGS DEM stores water-surface elevation values
     # (not NoData) for bays/ocean, so without this they render as coloured land.
+    # The water mask is on the same NAD83 grid as the DEM; use geom_4269 directly
+    # to avoid transform_geom("EPSG:4269", …) which fails when a conflicting
+    # PROJ database (e.g. from PostgreSQL/PostGIS) is present on the machine.
     if os.path.exists(WATER_MASK_PATH):
         try:
-            from rasterio.warp import transform_geom as _tg
             with rasterio.open(WATER_MASK_PATH) as wm:
-                _src_crs = "EPSG:4269"
-                _dst_crs = wm.crs.to_string() if wm.crs else _src_crs
-                _geom_for_wm = (
-                    _tg(_src_crs, _dst_crs, geom_4269.__geo_interface__)
-                    if _dst_crs != _src_crs else geom_4269.__geo_interface__
-                )
                 wm_image, _ = rio_mask(
-                    wm, [_geom_for_wm], crop=True, filled=True, nodata=0,
+                    wm, [geom_4269.__geo_interface__], crop=True, filled=True, nodata=0,
                 )
             water_ds = wm_image[0][::step_h, ::step_w].astype(bool)
             rgba[water_ds] = [0, 0, 0, 0]       # transparent for open water
@@ -739,20 +757,14 @@ def get_flood_overlay(geom_wkt: str, sea_level_m: float, baseline_m: float = 0.0
     rgba[poly_outside_ds] = [0, 0, 0, 0]  # transparent outside
 
     # Mask open-water bodies (NLCD water class) so bays/lakes/canals don't
-    # render as flooded land. Reproject the clip geometry to match the raster's
-    # native CRS so rio_mask receives coordinates in the right unit/projection.
+    # render as flooded land.  The water mask is on the same NAD83 grid as the
+    # hydro-connect raster; use geom_4269 directly to avoid transform_geom(
+    # "EPSG:4269", …) which fails when a conflicting PROJ database is present.
     if os.path.exists(WATER_MASK_PATH):
         try:
-            from rasterio.warp import transform_geom as _tg
             with rasterio.open(WATER_MASK_PATH) as wm:
-                _src_crs = "EPSG:4269"
-                _dst_crs = wm.crs.to_string() if wm.crs else _src_crs
-                _geom_for_wm = (
-                    _tg(_src_crs, _dst_crs, geom_4269.__geo_interface__)
-                    if _dst_crs != _src_crs else geom_4269.__geo_interface__
-                )
                 wm_image, _ = rio_mask(
-                    wm, [_geom_for_wm], crop=True, filled=True, nodata=0,
+                    wm, [geom_4269.__geo_interface__], crop=True, filled=True, nodata=0,
                 )
             water_ds = wm_image[0][::step_h, ::step_w].astype(bool)
             rgba[water_ds] = [0, 0, 0, 0]
@@ -851,7 +863,7 @@ def compute_population_at_risk(geom_wkt: str, year: int, threshold_m: float):
                     src_transform=pop_chunk_transform,
                     src_crs=pop_crs,
                     dst_transform=thr_transform,
-                    dst_crs="EPSG:4269",
+                    dst_crs=thr_src.crs,   # use raster CRS object; avoids EPSG string lookup
                     resampling=Resampling.nearest,
                     src_nodata=pop_nodata if pop_nodata is not None else np.nan,
                     dst_nodata=np.nan,
