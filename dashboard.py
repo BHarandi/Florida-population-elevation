@@ -761,12 +761,14 @@ def get_flood_overlay(geom_wkt: str, sea_level_m: float, baseline_m: float = 0.0
     valid           = ~np.isnan(thr_ds) & ~poly_outside_ds
 
     rgba = np.zeros((thr_ds.shape[0], thr_ds.shape[1], 4), dtype=np.uint8)
-    # Use max(baseline_m, 0.0) as the effective lower bound so that ocean
-    # pixels — whose hydro-connect threshold is stored near 0 m NAVD88 —
-    # are never painted red. For datum modes with a positive baseline (e.g.
-    # MHHW = +0.35 m) the datum still controls what counts as "newly flooded".
-    # For MSL/Custom/ESL where baseline can be negative, 0 m is the floor.
-    _effective_baseline = max(float(baseline_m), 0.0)
+    # Tidal floor: pixels with hydro-connect threshold ≤ 0.3 m NAVD88 are
+    # intertidal flats already regularly covered by normal tidal cycles
+    # (mean higher high water for Florida's Gulf coast ≈ 0.3–0.5 m NAVD88).
+    # They appear as open water on the basemap and should not be painted red.
+    # For datum modes with a higher baseline (e.g. MHHW = +0.35 m) the datum
+    # takes over; 0.3 m is only the minimum floor.
+    _TIDAL_FLOOR_M = 0.3
+    _effective_baseline = max(float(baseline_m), _TIDAL_FLOOR_M)
     if sea_level_m > _effective_baseline:
         rgba[valid & (thr_ds > _effective_baseline) & (thr_ds <= sea_level_m)] = [220, 0, 0, 160]
     rgba[poly_outside_ds] = [0, 0, 0, 0]  # transparent outside
