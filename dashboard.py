@@ -2291,7 +2291,7 @@ with tab3:
     # ── Resolve tidal datum / ESL scenario to an absolute NAVD88 elevation ───────
     slr_station_info = None
     _datum_zero_warning = None  # set to datum name string when station reports 0/missing datum
-    _slr_baseline_m = 0.0       # lower bound for red pixels; set to datum for tidal modes
+    _slr_baseline_m = 0.0       # lower bound for red pixels (tidal floor handled inside get_flood_overlay)
     if slr_m is None and slr_geom_wkt is not None:
         _nearest_station = _nearest_row(tide_df, "Lat", "Lon", slr_center["lat"], slr_center["lon"])
         _msl_navd88      = float(_nearest_station["MSL"])
@@ -2305,7 +2305,6 @@ with tab3:
                 slr_label = "MHHW datum is 0 / missing — no flood overlay"
                 _datum_zero_warning = "MHHW"
             else:
-                _slr_baseline_m = _datum_m   # red starts above the datum, not above 0
                 slr_m     = _datum_m + slr_extra_m
                 slr_ft    = slr_m * 3.28084
                 _extra_ft = slr_extra_m * 3.28084
@@ -2325,7 +2324,6 @@ with tab3:
                 slr_label = "MHW datum is 0 / missing — no flood overlay"
                 _datum_zero_warning = "MHW"
             else:
-                _slr_baseline_m = _datum_m   # red starts above the datum, not above 0
                 slr_m     = _datum_m + slr_extra_m
                 slr_ft    = slr_m * 3.28084
                 _extra_ft = slr_extra_m * 3.28084
@@ -2345,7 +2343,6 @@ with tab3:
                 slr_label = "MSL datum is 0 / missing — no flood overlay"
                 _datum_zero_warning = "MSL"
             else:
-                _slr_baseline_m = _datum_m   # red starts above the datum, not above 0
                 slr_m     = _datum_m + slr_extra_m
                 slr_ft    = slr_m * 3.28084
                 _extra_ft = slr_extra_m * 3.28084
