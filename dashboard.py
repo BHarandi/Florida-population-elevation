@@ -740,7 +740,7 @@ def get_flood_overlay(geom_wkt: str, sea_level_m: float, baseline_m: float = 0.0
     _effective_baseline = max(float(baseline_m), 0.0)
     red_mask = valid & (thr_ds > _effective_baseline) & (thr_ds <= sea_level_m)
     if sea_level_m > _effective_baseline:
-        rgba[red_mask] = [220, 0, 0, 160]
+        rgba[red_mask] = [255, 0, 0, 245]
         print(f"[flood overlay] red pixels before water mask: {red_mask.sum()} (baseline={_effective_baseline:.2f}m)", flush=True)
     else:
         print(f"[flood overlay] sea_level_m={sea_level_m:.2f} not > effective_baseline={_effective_baseline:.2f} — no red", flush=True)
@@ -2441,7 +2441,7 @@ with tab3:
                     "coordinates": [
                         [w84, n84], [e84, n84], [e84, s84], [w84, s84],
                     ],
-                    "opacity": 0.85,
+                    "opacity": 1.0,
                     "below": "traces",
                 }]
             elif flood_img is None and not os.path.exists(HYDRO_CONNECT_PATH):
