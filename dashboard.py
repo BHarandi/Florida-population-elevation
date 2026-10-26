@@ -737,18 +737,18 @@ def get_flood_overlay(geom_wkt: str, sea_level_m: float, baseline_m: float = 0.0
     valid           = ~np.isnan(thr_ds) & ~poly_outside_ds
 
     rgba = np.zeros((thr_ds.shape[0], thr_ds.shape[1], 4), dtype=np.uint8)
-    _TIDAL_FLOOR_M = 0.3
-    _effective_baseline = max(float(baseline_m), _TIDAL_FLOOR_M)
+    _effective_baseline = max(float(baseline_m), 0.0)
     if sea_level_m > _effective_baseline:
         red_mask = valid & (thr_ds > _effective_baseline) & (thr_ds <= sea_level_m)
         rgba[red_mask] = [220, 0, 0, 160]
-        print(f"[flood overlay] red pixels before water mask: {red_mask.sum()} (floor={_effective_baseline:.2f}m)", flush=True)
+        print(f"[flood overlay] red pixels before water mask: {red_mask.sum()} (baseline={_effective_baseline:.2f}m)", flush=True)
     else:
         print(f"[flood overlay] sea_level_m={sea_level_m:.2f} not > effective_baseline={_effective_baseline:.2f} — no red", flush=True)
     rgba[poly_outside_ds] = [0, 0, 0, 0]
 
     # Mask open-water bodies (NLCD class 11). Reproject water mask onto the
     # exact pixel grid of the flood raster so every pixel aligns perfectly.
+    # Safety: if the mask covers >80% of valid pixels it is likely wrong — skip it.
     if os.path.exists(WATER_MASK_PATH) and not _is_lfs_pointer_stub(WATER_MASK_PATH):
         try:
             from rasterio.warp import reproject as _reproject, Resampling as _RS
@@ -766,9 +766,13 @@ def get_flood_overlay(geom_wkt: str, sea_level_m: float, baseline_m: float = 0.0
                     resampling=_RS.nearest,
                 )
             water_ds = water_aligned[::step_h, ::step_w].astype(bool)
-            print(f"[flood overlay] water mask pixels: {water_ds.sum()} / {water_ds.size}", flush=True)
-            rgba[water_ds] = [0, 0, 0, 0]
-            print(f"[flood overlay] red pixels after water mask: {(rgba[..., 0] == 220).sum()}", flush=True)
+            water_frac = water_ds.sum() / max(water_ds.size, 1)
+            print(f"[flood overlay] water mask pixels: {water_ds.sum()} / {water_ds.size} ({water_frac:.1%})", flush=True)
+            if water_frac < 0.80:
+                rgba[water_ds] = [0, 0, 0, 0]
+                print(f"[flood overlay] red pixels after water mask: {(rgba[..., 0] == 220).sum()}", flush=True)
+            else:
+                print(f"[flood overlay] water mask covers {water_frac:.1%} — looks wrong, skipping", flush=True)
         except Exception as _wm_err:
             print(f"[flood overlay] water mask FAILED: {_wm_err}", flush=True)
     elif not os.path.exists(WATER_MASK_PATH):
