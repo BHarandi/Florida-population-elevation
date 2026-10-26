@@ -771,7 +771,7 @@ def get_flood_overlay(geom_wkt: str, sea_level_m: float, baseline_m: float = 0.0
             print(f"[flood overlay] candidates classified as water: {np.count_nonzero(red_mask & water_ds)}", flush=True)
             print(f"[flood overlay] candidates remaining on land: {np.count_nonzero(red_mask & ~water_ds)}", flush=True)
             rgba[water_ds] = [0, 0, 0, 0]
-            print(f"[flood overlay] red pixels after water mask: {(rgba[..., 0] == 220).sum()}", flush=True)
+            print(f"[flood overlay] red pixels after water mask: {np.count_nonzero((rgba[..., 0] == 255) & (rgba[..., 3] > 0))}", flush=True)
         except Exception as _wm_err:
             print(f"[flood overlay] water mask FAILED: {_wm_err}", flush=True)
     elif not os.path.exists(WATER_MASK_PATH):
