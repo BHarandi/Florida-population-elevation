@@ -6,6 +6,40 @@ Date: July-September 2026
 Run: python -m streamlit run dashboard.py
 """
 
+# ── PROJ database fix ─────────────────────────────────────────────────────────
+# PostgreSQL ships an older PROJ database that can override rasterio's own copy,
+# causing CRS lookups by EPSG code to fail inside rasterio.warp.transform_geom
+# and rasterio.warp.reproject.  Set PROJ_DATA / PROJ_LIB to rasterio's bundled
+# copy before any geo library initialises PROJ.
+import os as _os, sys as _sys, importlib.util as _iu
+_rp = None
+
+# Primary: use importlib to locate rasterio's package dir — works on any OS/layout
+_spec = _iu.find_spec("rasterio")
+if _spec is not None and _spec.origin is not None:
+    _candidate = _os.path.join(_os.path.dirname(_spec.origin), "proj_data")
+    if _os.path.isdir(_candidate):
+        _rp = _candidate
+
+# Fallback: glob under home directory (catches user-level conda/pip installs)
+if _rp is None:
+    import glob as _glob
+    _hits = _glob.glob(
+        _os.path.join(_os.path.expanduser("~"), "**", "rasterio", "proj_data"),
+        recursive=True,
+    )
+    if _hits:
+        _rp = _hits[0]
+
+if _rp and _os.path.isdir(_rp):
+    _os.environ.setdefault("PROJ_DATA", _rp)
+    _os.environ.setdefault("PROJ_LIB",  _rp)
+    print(f"[PROJ fix] PROJ_DATA set to: {_rp}", flush=True)
+else:
+    print(f"[PROJ fix] WARNING: rasterio proj_data NOT found; PROJ env unchanged", flush=True)
+del _os, _sys, _iu, _spec, _rp
+# ─────────────────────────────────────────────────────────────────────────────
+
 import streamlit as st
 import pandas as pd
 import geopandas as gpd
@@ -625,24 +659,23 @@ def get_dem_overlay(geom_wkt: str, unit_k: str):
 
     # Mask out water bodies — USGS DEM stores water-surface elevation values
     # (not NoData) for bays/ocean, so without this they render as coloured land.
+    # The water mask is on the same NAD83 grid as the DEM; use geom_4269 directly
+    # to avoid transform_geom("EPSG:4269", …) which fails when a conflicting
+    # PROJ database (e.g. from PostgreSQL/PostGIS) is present on the machine.
     if os.path.exists(WATER_MASK_PATH):
         try:
-            from rasterio.warp import transform_geom as _tg
             with rasterio.open(WATER_MASK_PATH) as wm:
-                _src_crs = "EPSG:4269"
-                _dst_crs = wm.crs.to_string() if wm.crs else _src_crs
-                _geom_for_wm = (
-                    _tg(_src_crs, _dst_crs, geom_4269.__geo_interface__)
-                    if _dst_crs != _src_crs else geom_4269.__geo_interface__
-                )
                 wm_image, _ = rio_mask(
-                    wm, [_geom_for_wm], crop=True, filled=True, nodata=0,
+                    wm, [geom_4269.__geo_interface__], crop=True, filled=True, nodata=0,
                 )
             water_ds = wm_image[0][::step_h, ::step_w].astype(bool)
+            h_ds, w_ds = rgba.shape[:2]
+            water_ds = water_ds[:h_ds, :w_ds]
             rgba[water_ds] = [0, 0, 0, 0]       # transparent for open water
             label_arr[water_ds] = ""
-        except Exception:
-            pass
+            print(f"[dem overlay] water mask applied: {water_ds.sum()} px transparent", flush=True)
+        except Exception as _wm_err:
+            print(f"[dem overlay] water mask FAILED: {_wm_err}", flush=True)
 
     # Outside polygon → fully transparent
     rgba[poly_outside_ds] = [0, 0, 0, 0]
@@ -685,10 +718,6 @@ def get_flood_overlay(geom_wkt: str, sea_level_m: float, baseline_m: float = 0.0
     flagged. Returns (data_uri_png, [west, south, east, north]) or (None, None).
     """
     if not os.path.exists(HYDRO_CONNECT_PATH):
-        print("[flood overlay] HYDRO_CONNECT_PATH not found", flush=True)
-        return None, None
-    if _is_lfs_pointer_stub(HYDRO_CONNECT_PATH):
-        print("[flood overlay] HYDRO_CONNECT_PATH is a Git LFS pointer stub — real file not pulled", flush=True)
         return None, None
 
     try:
@@ -696,26 +725,21 @@ def get_flood_overlay(geom_wkt: str, sea_level_m: float, baseline_m: float = 0.0
         geom_wgs84 = shapely_wkt.loads(geom_wkt)
         gdf = gpd.GeoDataFrame(geometry=[geom_wgs84], crs="EPSG:4326").to_crs("EPSG:4269")
         geom_4269 = gdf.geometry.iloc[0]
-    except Exception as _e:
-        print(f"[flood overlay] geometry parse FAILED: {_e}", flush=True)
+    except Exception:
         return None, None
 
     try:
         with rasterio.open(HYDRO_CONNECT_PATH) as src:
-            src_crs = src.crs
             out_image, out_transform = rio_mask(
                 src, [geom_4269.__geo_interface__], crop=True, filled=False,
             )
-    except Exception as _e:
-        print(f"[flood overlay] rasterio open/mask FAILED: {_e}", flush=True)
+    except Exception:
         return None, None
 
     from rasterio.features import geometry_mask
     thr_ma = out_image[0]
     h, w = thr_ma.shape
-    print(f"[flood overlay] raster crop OK — shape={h}×{w}, sea_level={sea_level_m:.2f}m, baseline={baseline_m:.2f}m", flush=True)
     if h == 0 or w == 0:
-        print("[flood overlay] zero-size crop — returning None", flush=True)
         return None, None
 
     poly_outside = geometry_mask(
@@ -737,47 +761,36 @@ def get_flood_overlay(geom_wkt: str, sea_level_m: float, baseline_m: float = 0.0
     valid           = ~np.isnan(thr_ds) & ~poly_outside_ds
 
     rgba = np.zeros((thr_ds.shape[0], thr_ds.shape[1], 4), dtype=np.uint8)
-    _effective_baseline = max(float(baseline_m), 0.0)
-    red_mask = valid & (thr_ds > _effective_baseline) & (thr_ds <= sea_level_m)
+    # Tidal floor: pixels with hydro-connect threshold ≤ 0.3 m NAVD88 are
+    # intertidal flats already regularly covered by normal tidal cycles
+    # (mean higher high water for Florida's Gulf coast ≈ 0.3–0.5 m NAVD88).
+    # They appear as open water on the basemap and should not be painted red.
+    # For datum modes with a higher baseline (e.g. MHHW = +0.35 m) the datum
+    # takes over; 0.3 m is only the minimum floor.
+    _TIDAL_FLOOR_M = 0.3
+    _effective_baseline = max(float(baseline_m), _TIDAL_FLOOR_M)
     if sea_level_m > _effective_baseline:
-        rgba[red_mask] = [220, 0, 0, 160]
-        print(f"[flood overlay] red pixels before water mask: {red_mask.sum()} (baseline={_effective_baseline:.2f}m)", flush=True)
-    else:
-        print(f"[flood overlay] sea_level_m={sea_level_m:.2f} not > effective_baseline={_effective_baseline:.2f} — no red", flush=True)
-    rgba[poly_outside_ds] = [0, 0, 0, 0]
+        rgba[valid & (thr_ds > _effective_baseline) & (thr_ds <= sea_level_m)] = [220, 0, 0, 160]
+    rgba[poly_outside_ds] = [0, 0, 0, 0]  # transparent outside
 
-    # Mask open-water bodies (NLCD class 11). Reproject water mask onto the
-    # exact pixel grid of the flood raster so every pixel aligns perfectly.
-    if os.path.exists(WATER_MASK_PATH) and not _is_lfs_pointer_stub(WATER_MASK_PATH):
+    # Mask open-water bodies (NLCD water class) so bays/lakes/canals don't
+    # render as flooded land.  The water mask is on the same NAD83 grid as the
+    # hydro-connect raster; use geom_4269 directly to avoid transform_geom(
+    # "EPSG:4269", …) which fails when a conflicting PROJ database is present.
+    if os.path.exists(WATER_MASK_PATH):
         try:
-            from rasterio.warp import reproject as _reproject, Resampling as _RS
             with rasterio.open(WATER_MASK_PATH) as wm:
-                water_aligned = np.zeros((h, w), dtype=np.uint8)
-                _reproject(
-                    source=rasterio.band(wm, 1),
-                    destination=water_aligned,
-                    src_transform=wm.transform,
-                    src_crs=wm.crs,
-                    dst_transform=out_transform,
-                    dst_crs=src_crs,
-                    src_nodata=wm.nodata,
-                    dst_nodata=0,
-                    resampling=_RS.nearest,
+                wm_image, _ = rio_mask(
+                    wm, [geom_4269.__geo_interface__], crop=True, filled=True, nodata=0,
                 )
-            vals, counts = np.unique(water_aligned, return_counts=True)
-            print(f"[flood overlay] water mask unique values: {dict(zip(vals.tolist(), counts.tolist()))}", flush=True)
-            water_ds = water_aligned[::step_h, ::step_w].astype(bool)
-            print(f"[flood overlay] candidates before masking: {red_mask.sum()}", flush=True)
-            print(f"[flood overlay] candidates classified as water: {np.count_nonzero(red_mask & water_ds)}", flush=True)
-            print(f"[flood overlay] candidates remaining on land: {np.count_nonzero(red_mask & ~water_ds)}", flush=True)
+            water_ds = wm_image[0][::step_h, ::step_w].astype(bool)
+            h_ds, w_ds = rgba.shape[:2]
+            water_ds = water_ds[:h_ds, :w_ds]  # guard against 1-pixel crop difference
             rgba[water_ds] = [0, 0, 0, 0]
-            print(f"[flood overlay] red pixels after water mask: {(rgba[..., 0] == 220).sum()}", flush=True)
+            print(f"[flood overlay] water mask applied: {water_ds.sum()} px transparent, "
+                  f"thr shape={thr_ma.shape}, wm shape={wm_image[0].shape}", flush=True)
         except Exception as _wm_err:
             print(f"[flood overlay] water mask FAILED: {_wm_err}", flush=True)
-    elif not os.path.exists(WATER_MASK_PATH):
-        print("[flood overlay] water mask file not found — skipping", flush=True)
-    else:
-        print("[flood overlay] water mask is a Git LFS stub — skipping", flush=True)
 
     img = Image.fromarray(rgba, "RGBA")
     buf = io.BytesIO()
@@ -871,7 +884,7 @@ def compute_population_at_risk(geom_wkt: str, year: int, threshold_m: float):
                     src_transform=pop_chunk_transform,
                     src_crs=pop_crs,
                     dst_transform=thr_transform,
-                    dst_crs="EPSG:4269",
+                    dst_crs=thr_src.crs,   # use raster CRS object; avoids EPSG string lookup
                     resampling=Resampling.nearest,
                     src_nodata=pop_nodata if pop_nodata is not None else np.nan,
                     dst_nodata=np.nan,
@@ -2304,7 +2317,7 @@ with tab3:
     # ── Resolve tidal datum / ESL scenario to an absolute NAVD88 elevation ───────
     slr_station_info = None
     _datum_zero_warning = None  # set to datum name string when station reports 0/missing datum
-    _slr_baseline_m = 0.0       # lower bound for red pixels (tidal floor handled inside get_flood_overlay)
+    _slr_baseline_m = 0.0       # lower bound for red pixels; set to datum for tidal modes
     if slr_m is None and slr_geom_wkt is not None:
         _nearest_station = _nearest_row(tide_df, "Lat", "Lon", slr_center["lat"], slr_center["lon"])
         _msl_navd88      = float(_nearest_station["MSL"])
@@ -2318,6 +2331,7 @@ with tab3:
                 slr_label = "MHHW datum is 0 / missing — no flood overlay"
                 _datum_zero_warning = "MHHW"
             else:
+                _slr_baseline_m = _datum_m   # red starts above the datum, not above 0
                 slr_m     = _datum_m + slr_extra_m
                 slr_ft    = slr_m * 3.28084
                 _extra_ft = slr_extra_m * 3.28084
@@ -2337,6 +2351,7 @@ with tab3:
                 slr_label = "MHW datum is 0 / missing — no flood overlay"
                 _datum_zero_warning = "MHW"
             else:
+                _slr_baseline_m = _datum_m   # red starts above the datum, not above 0
                 slr_m     = _datum_m + slr_extra_m
                 slr_ft    = slr_m * 3.28084
                 _extra_ft = slr_extra_m * 3.28084
@@ -2356,6 +2371,7 @@ with tab3:
                 slr_label = "MSL datum is 0 / missing — no flood overlay"
                 _datum_zero_warning = "MSL"
             else:
+                _slr_baseline_m = _datum_m   # red starts above the datum, not above 0
                 slr_m     = _datum_m + slr_extra_m
                 slr_ft    = slr_m * 3.28084
                 _extra_ft = slr_extra_m * 3.28084
@@ -2445,10 +2461,7 @@ with tab3:
                     "below": "traces",
                 }]
             elif flood_img is None and not os.path.exists(HYDRO_CONNECT_PATH):
-                if _is_lfs_pointer_stub(HYDRO_CONNECT_PATH):
-                    st.warning("Hydro-connectivity raster is a Git LFS pointer stub — run `git lfs pull` in the Codespace to download the real file.")
-                else:
-                    st.warning("Hydro-connectivity raster not found — flood overlay unavailable.")
+                st.warning("Hydro-connectivity raster not found — flood overlay unavailable.")
 
             fig_slr.update_layout(
                 **_map_layout(**mapbox_cfg_slr),
