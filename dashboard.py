@@ -777,7 +777,7 @@ def get_flood_overlay(geom_wkt: str, sea_level_m: float, baseline_m: float = 0.0
         try:
             from rasterio.warp import reproject as _reproject, Resampling as _RS
             with rasterio.open(WATER_MASK_PATH) as wm:
-                water_aligned = np.zeros((h, w), dtype=np.uint8)
+                water_aligned = np.full((h, w), 255, dtype=np.uint8)
                 _reproject(
                     source=rasterio.band(wm, 1),
                     destination=water_aligned,
@@ -786,7 +786,7 @@ def get_flood_overlay(geom_wkt: str, sea_level_m: float, baseline_m: float = 0.0
                     dst_transform=out_transform,
                     dst_crs=src_crs,
                     src_nodata=wm.nodata,
-                    dst_nodata=0,
+                    dst_nodata=255,
                     resampling=_RS.nearest,
                 )
             vals, counts = np.unique(water_aligned, return_counts=True)
