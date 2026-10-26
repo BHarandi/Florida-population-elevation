@@ -6,6 +6,31 @@ Date: July-September 2026
 Run: python -m streamlit run dashboard.py
 """
 
+# ── PROJ database fix ──────────────────────────────────────────────────────────
+# PostgreSQL/PostGIS ships its own PROJ database which can override rasterio's,
+# causing CRS transformation failures. Point PROJ to rasterio's own copy first,
+# before any geopandas/rasterio imports.
+import os as _os, sys as _sys, importlib.util as _ilu
+_rasterio_spec = _ilu.find_spec("rasterio")
+if _rasterio_spec is not None:
+    _rasterio_proj = _os.path.join(
+        _os.path.dirname(_rasterio_spec.origin), "proj_data"
+    )
+    if not _os.path.isdir(_rasterio_proj):
+        # fallback: search common locations
+        import glob as _glob
+        _hits = _glob.glob(
+            _os.path.join(_os.path.expanduser("~"), "**", "rasterio", "proj_data"),
+            recursive=True,
+        )
+        if _hits:
+            _rasterio_proj = _hits[0]
+    if _os.path.isdir(_rasterio_proj):
+        _os.environ["PROJ_DATA"] = _rasterio_proj
+        _os.environ["PROJ_LIB"]  = _rasterio_proj
+del _os, _sys, _ilu
+# ──────────────────────────────────────────────────────────────────────────────
+
 import streamlit as st
 import pandas as pd
 import geopandas as gpd
@@ -770,8 +795,9 @@ def get_flood_overlay(geom_wkt: str, sea_level_m: float, baseline_m: float = 0.0
             print(f"[flood overlay] candidates before masking: {red_mask.sum()}", flush=True)
             print(f"[flood overlay] candidates classified as water: {np.count_nonzero(red_mask & water_ds)}", flush=True)
             print(f"[flood overlay] candidates remaining on land: {np.count_nonzero(red_mask & ~water_ds)}", flush=True)
-            rgba[water_ds] = [0, 0, 0, 0]
-            print(f"[flood overlay] red pixels after water mask: {np.count_nonzero((rgba[..., 0] == 255) & (rgba[..., 3] > 0))}", flush=True)
+            # DIAGNOSTIC: water mask temporarily disabled to test if it is removing red pixels
+            # rgba[water_ds] = [0, 0, 0, 0]
+            print(f"[flood overlay] red pixels after water mask (mask DISABLED for test): {np.count_nonzero((rgba[..., 0] == 255) & (rgba[..., 3] > 0))}", flush=True)
         except Exception as _wm_err:
             print(f"[flood overlay] water mask FAILED: {_wm_err}", flush=True)
     elif not os.path.exists(WATER_MASK_PATH):
