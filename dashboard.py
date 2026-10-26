@@ -734,7 +734,7 @@ def get_flood_overlay(geom_wkt: str, sea_level_m: float, baseline_m: float = 0.0
     step_w = max(1, w // MAX_PX)
     thr_ds          = thr[::step_h, ::step_w]
     poly_outside_ds = poly_outside[::step_h, ::step_w]
-    valid           = ~np.isnan(thr_ds) & ~poly_outside_ds
+    valid           = np.isfinite(thr_ds) & ~poly_outside_ds
 
     rgba = np.zeros((thr_ds.shape[0], thr_ds.shape[1], 4), dtype=np.uint8)
     _effective_baseline = max(float(baseline_m), 0.0)
