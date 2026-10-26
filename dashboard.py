@@ -791,13 +791,13 @@ def get_flood_overlay(geom_wkt: str, sea_level_m: float, baseline_m: float = 0.0
                 )
             vals, counts = np.unique(water_aligned, return_counts=True)
             print(f"[flood overlay] water mask unique values: {dict(zip(vals.tolist(), counts.tolist()))}", flush=True)
-            water_ds = water_aligned[::step_h, ::step_w].astype(bool)
+            # water_mask_nlcd2021_fl.tif is binary: 1 = open water (NLCD class 11), 0 = land
+            water_ds = water_aligned[::step_h, ::step_w] == 1
             print(f"[flood overlay] candidates before masking: {red_mask.sum()}", flush=True)
             print(f"[flood overlay] candidates classified as water: {np.count_nonzero(red_mask & water_ds)}", flush=True)
             print(f"[flood overlay] candidates remaining on land: {np.count_nonzero(red_mask & ~water_ds)}", flush=True)
-            # DIAGNOSTIC: water mask temporarily disabled to test if it is removing red pixels
-            # rgba[water_ds] = [0, 0, 0, 0]
-            print(f"[flood overlay] red pixels after water mask (mask DISABLED for test): {np.count_nonzero((rgba[..., 0] == 255) & (rgba[..., 3] > 0))}", flush=True)
+            rgba[water_ds] = [0, 0, 0, 0]
+            print(f"[flood overlay] red pixels after water mask: {np.count_nonzero((rgba[..., 0] == 255) & (rgba[..., 3] > 0))}", flush=True)
         except Exception as _wm_err:
             print(f"[flood overlay] water mask FAILED: {_wm_err}", flush=True)
     elif not os.path.exists(WATER_MASK_PATH):
