@@ -90,7 +90,7 @@ COUNTY_SHP = os.path.join(_BASE, "data", "shp", "counties", "tl_2010_12_county10
 STATE_SHP  = os.path.join(_BASE, "data", "shp", "state",    "tl_2020_12_state.shp")
 DEM_PATH           = os.path.join(_BASE, "data", "dem_florida_100m.tif")
 WATER_MASK_PATH    = os.path.join(_BASE, "data", "water_mask_nlcd2021_fl.tif")
-HYDRO_CONNECT_PATH = os.path.join(_BASE, "data", "hydro_connect_threshold_m.tif")
+HYDRO_CONNECT_PATH = os.path.join(_BASE, "data", "hydro_connect_threshold_m_V1.tif")
 _wp_local     = os.path.join(_BASE, "data", "worldpop_wgs84")
 WORLDPOP_DIR  = _wp_local if os.path.isdir(_wp_local) else r"E:\2026\Datasets\worldpop-data\wgs84"
 _HAZARDS_LOCAL  = os.path.join(_BASE, "data", "Florida_Hazards_1996-2024.parquet")
@@ -552,6 +552,46 @@ def _infra_hover_texts(gdf: "gpd.GeoDataFrame") -> list:
     ]
 
 
+def _rgba_to_mercator_png(rgba, transform, src_crs, step_h=1, step_w=1):
+    """
+    Warp an RGBA overlay from a geographic (lon/lat) grid onto a Web Mercator
+    grid, PNG-encode it, and return (data_uri, [west, south, east, north]).
+
+    Mapbox/MapLibre image layers stretch the picture linearly in Web Mercator
+    between the four corner coordinates. Rasters in EPSG:4269/4326 are linear
+    in *latitude*, so without this warp every row is drawn at the wrong
+    latitude (up to ~5.5 km off for the statewide extent, ~3.7 km at Miami).
+    `step_h`/`step_w` are the downsampling strides already applied to `rgba`.
+    """
+    from rasterio.transform import Affine
+    from rasterio.warp import (
+        reproject as _reproject, Resampling as _RS,
+        calculate_default_transform as _cdt, transform_bounds as _tb,
+    )
+    h, w = rgba.shape[:2]
+    src_t = transform * Affine.scale(step_w, step_h)   # transform of the downsampled grid
+    left, top = src_t.c, src_t.f
+    right, bottom = left + w * src_t.a, top + h * src_t.e
+    dst_crs = "EPSG:3857"
+    dst_t, dw, dh = _cdt(src_crs, dst_crs, w, h, left, bottom, right, top,
+                         dst_width=w, dst_height=h)
+    out = np.zeros((4, dh, dw), dtype=np.uint8)
+    for b in range(4):
+        _reproject(
+            source=np.ascontiguousarray(rgba[..., b]), destination=out[b],
+            src_transform=src_t, src_crs=src_crs,
+            dst_transform=dst_t, dst_crs=dst_crs,
+            resampling=_RS.nearest,
+        )
+    mx0, my1 = dst_t.c, dst_t.f
+    mx1, my0 = mx0 + dw * dst_t.a, my1 + dh * dst_t.e
+    west, south, east, north = _tb(dst_crs, "EPSG:4326", mx0, my0, mx1, my1)
+    buf = io.BytesIO()
+    Image.fromarray(np.moveaxis(out, 0, -1), "RGBA").save(buf, format="PNG")
+    data_uri = "data:image/png;base64," + base64.b64encode(buf.getvalue()).decode()
+    return data_uri, [west, south, east, north]
+
+
 @st.cache_data(show_spinner="Reading DEM …")
 def get_dem_overlay(geom_wkt: str, unit_k: str):
     """
@@ -674,10 +714,9 @@ def get_dem_overlay(geom_wkt: str, unit_k: str):
     # Inside polygon but DEM has no data (bridges, buildings, gaps) → neutral gray
     rgba[inside_nodata_ds] = [160, 160, 160, 140]
 
-    img = Image.fromarray(rgba, "RGBA")
-    buf = io.BytesIO()
-    img.save(buf, format="PNG")
-    data_uri = "data:image/png;base64," + base64.b64encode(buf.getvalue()).decode()
+    data_uri, img_bounds = _rgba_to_mercator_png(
+        rgba, out_transform, "EPSG:4269", step_h, step_w,
+    )
 
     # Hover grid — ~60×60 points across the county
     HOVER_N = 60
@@ -697,7 +736,7 @@ def get_dem_overlay(geom_wkt: str, unit_k: str):
         "text": [f"{v:.1f} {unit_str} above MSL" for v in hdem[valid].tolist()],
     }
 
-    return data_uri, [west, south, east, north], hover
+    return data_uri, img_bounds, hover
 
 
 @st.cache_data(show_spinner="Computing flood overlay …")
@@ -805,11 +844,7 @@ def get_flood_overlay(geom_wkt: str, sea_level_m: float, baseline_m: float = 0.0
     else:
         print("[flood overlay] water mask is a Git LFS stub — skipping", flush=True)
 
-    img = Image.fromarray(rgba, "RGBA")
-    buf = io.BytesIO()
-    img.save(buf, format="PNG")
-    data_uri = "data:image/png;base64," + base64.b64encode(buf.getvalue()).decode()
-    return data_uri, [west, south, east, north]
+    return _rgba_to_mercator_png(rgba, out_transform, src_crs, step_h, step_w)
 
 
 @st.cache_data(show_spinner="Computing population at risk from raster data…")
@@ -1189,6 +1224,7 @@ def get_pop_overlay(geom_wkt: str, year: int):
     try:
         with rasterio.open(pop_path) as src:
             pop_nodata = src.nodata
+            pop_src_crs = src.crs or "EPSG:4326"
             out_image, out_transform = rio_mask(
                 src, [geom_wgs84.__geo_interface__], crop=True, filled=False,
             )
@@ -1257,9 +1293,9 @@ def get_pop_overlay(geom_wkt: str, year: int):
     rgba_dens[valid & (pop_ds > q80)] = _Q5_COLORS[4]
     rgba_dens[poly_outside_ds] = 0
 
-    buf_dens = io.BytesIO()
-    Image.fromarray(rgba_dens, "RGBA").save(buf_dens, format="PNG")
-    data_uri_dens = "data:image/png;base64," + base64.b64encode(buf_dens.getvalue()).decode()
+    data_uri_dens, dens_img_bounds = _rgba_to_mercator_png(
+        rgba_dens, out_transform, pop_src_crs, step_h, step_w,
+    )
 
     # [min, q20, q40, q60, q80, max] in people/km² for the legend
     max_dens = round(float(np.nanmax(valid_vals)) * 100) if valid.any() else 100
@@ -1286,7 +1322,7 @@ def get_pop_overlay(geom_wkt: str, year: int):
         ],
     }
 
-    return None, data_uri_dens, [west, south, east, north], hover, dens_breaks, None
+    return None, data_uri_dens, dens_img_bounds, hover, dens_breaks, None
 
 
 def _pop_legend_html(breaks: list) -> str:
